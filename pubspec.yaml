@@ -1,0 +1,35 @@
+name: photo_organizer_app
+description: A Flutter app to organize photos into Google Photos collections.
+version: 1.0.0+1
+
+environment:
+  sdk: ">=2.12.0 <3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^0.13.3
+  provider: ^6.0.0
+  googleapis: any
+  googleapis_auth: any
+  camera: ^0.10.0
+  permission_handler: ^10.4.0
+  geolocator: ^9.0.2
+  image_picker: ^1.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.10.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+
+# Configuration for flutter_launcher_icons
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon.png"

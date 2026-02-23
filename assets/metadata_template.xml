@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PhotoOrganizer>
+  <SessionInfo>
+    <CreatedDate>{TIMESTAMP}</CreatedDate>
+    <PhotoCategory>{CATEGORY}</PhotoCategory>
+  </SessionInfo>
+  
+  <LocationData>
+    <Plaatsnaam>{PLAATSNAAM}</Plaatsnaam>
+    <Postcode>{POSTCODE}</Postcode>
+    <OorspronkelijkBouwjaar>{BOUWJAAR}</OorspronkelijkBouwjaar>
+    <Gebruiksdoel>{GEBRUIKSDOEL}</Gebruiksdoel>
+  </LocationData>
+  
+  <Photos>
+    <PhotoEntry>
+      <FileName>{FILENAME}</FileName>
+      <Type>{TYPE}</Type>
+      <Timestamp>{PHOTO_TIMESTAMP}</Timestamp>
+      <FilePath>{FILEPATH}</FilePath>
+    </PhotoEntry>
+  </Photos>
+  
+  <FolderStructure>
+    <BasePath>{BASE_PATH}</BasePath>
+    <CategoryFolder>{CATEGORY_FOLDER}</CategoryFolder>
+    <AddressFolder>{ADDRESS_FOLDER}</AddressFolder>
+  </FolderStructure>
+</PhotoOrganizer>
