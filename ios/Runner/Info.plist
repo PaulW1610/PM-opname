@@ -55,6 +55,8 @@
 	<string>We gebruiken de camera om foto's te maken voor jouw collecties.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>We gebruiken je locatie om BAG-gegevens op te zoeken bij je huidige positie.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Deze app heeft altijd toegang tot je locatie nodig voor volledige functionaliteit.</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UISupportedInterfaceOrientations</key>
