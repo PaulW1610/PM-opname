@@ -1,0 +1,4 @@
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"
+#include "Generated.xcconfig"
+FRAMEWORK_SEARCH_PATHS=$(inherited) "$(PODS_CONFIGURATION_BUILD_DIR)" "$(PODS_CONFIGURATION_BUILD_DIR)/Pods_Runner"
+LIBRARY_SEARCH_PATHS=$(inherited) "$(PODS_CONFIGURATION_BUILD_DIR)"

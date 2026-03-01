@@ -53,10 +53,21 @@
 	<string>LaunchScreen</string>
 	<key>NSCameraUsageDescription</key>
 	<string>We gebruiken de camera om foto's te maken voor jouw collecties.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>We gebruiken Foto's om afbeeldingen in een adres-album op te slaan.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>We gebruiken Foto's om afbeeldingen in een adres-album op te slaan.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>We gebruiken je locatie om BAG-gegevens op te zoeken bij je huidige positie.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Deze app heeft altijd toegang tot je locatie nodig voor volledige functionaliteit.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Lokale netwerktoegang is nodig om debugverbinding met Flutter op te zetten.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_dartVmService._tcp</string>
+		<string>_dartobservatory._tcp</string>
+	</array>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UISupportedInterfaceOrientations</key>

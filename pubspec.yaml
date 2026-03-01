@@ -1,5 +1,5 @@
 name: photo_organizer_app
-description: A Flutter app to organize photos into Google Photos collections.
+description: A Flutter app that tags camera photos and saves them to iCloud Photos albums by address.
 version: 1.0.0+1
 
 environment:
@@ -9,13 +9,16 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^0.13.3
-  provider: ^6.0.0
-  googleapis: any
-  googleapis_auth: any
   camera: ^0.10.0
   permission_handler: ^10.4.0
   geolocator: ^9.0.2
-  image_picker: ^1.0.0
+  geocoding: ^2.1.1
+  gallery_saver: ^2.3.2
+  image: ^3.3.0
+  path_provider: ^2.0.11
+  shared_preferences: ^2.0.15
+  flutter_email_sender: ^6.0.3
+  pdf: ^3.8.4
 
 dev_dependencies:
   flutter_test:
@@ -26,7 +29,10 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/icon.png
     - assets/images/
+    - assets/metadata_template.xml
+    - assets/import_template.xml
 
 # Configuration for flutter_launcher_icons
 flutter_icons:

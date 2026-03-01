@@ -1,0 +1,89 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "iOS launch only (no debugger)",
+			"type": "shell",
+			"command": "./tool/start_ios.sh",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "run"
+		},
+		{
+			"label": "iOS repair start (allow reinstall)",
+			"type": "shell",
+			"command": "./tool/start_ios.sh --allow-reinstall",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "run"
+		},
+		{
+			"label": "iOS camera stability check",
+			"type": "shell",
+			"command": "./tool/camera_stability_check.sh",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Run Flutter tests",
+			"type": "shell",
+			"command": "flutter test",
+			"isBackground": false,
+			"problemMatcher": [
+				"$dart-test"
+			],
+			"group": "test"
+		},
+		{
+			"label": "Flutter build apk",
+			"type": "shell",
+			"command": "flutter build apk",
+			"isBackground": false,
+			"problemMatcher": [
+				"$dart"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Flutter run web (Chrome)",
+			"type": "shell",
+			"command": "flutter run -d chrome",
+			"isBackground": false,
+			"problemMatcher": [
+				"$dart"
+			],
+			"group": "run"
+		},
+		{
+			"label": "Flutter clean",
+			"type": "shell",
+			"command": "flutter clean",
+			"isBackground": false,
+			"problemMatcher": [
+				"$dart"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Flutter run iOS (stable)",
+			"type": "shell",
+			"command": "./tool/run_ios.sh",
+			"isBackground": false,
+			"problemMatcher": [
+				"$dart"
+			],
+			"group": "run"
+		},
+		{
+			"label": "Flutter run iOS (debug)",
+			"type": "shell",
+			"command": "./tool/run_ios.sh --debug",
+			"isBackground": false,
+			"problemMatcher": [
+				"$dart"
+			],
+			"group": "run"
+		}
+	]
+}
