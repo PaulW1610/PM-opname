@@ -6,8 +6,13 @@ import 'package:flutter_email_sender/flutter_email_sender.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
+import '../services/dropbox_service.dart';
 import '../services/dossier_service.dart';
+import '../services/opmerkingen_formulier_service.dart';
+import '../services/overige_ruimte_beslisschema_service.dart';
+import '../services/three_d_bag_service.dart';
 import '../services/xml_export_service.dart';
 import '../widgets/pm_branding_header.dart';
 
@@ -30,7 +35,16 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
   static const String _bagApiKey =
       String.fromEnvironment('BAG_API_KEY', defaultValue: 'l79175a82fbd564ef8b7ac64e4b7857001');
   static const List<String> _vloerOpties = ['Hout', 'Beton'];
-  static const List<String> _ventilatieOpties = ['A', 'B', 'C', 'D'];
+  static const List<String> _ventilatieOpties = [
+    'A - Natuurlijk (toevoer + afvoer)',
+    'B - Mechanische toevoer, natuurlijke afvoer',
+    'C - Natuurlijke toevoer, mechanische afvoer',
+    'C - Vraaggestuurd (CO₂)',
+    'C - Vraaggestuurd (RV)',
+    'D - Balansventilatie',
+    'D - Balansventilatie met WTW',
+    'D - Vraaggestuurd (CO₂)',
+  ];
   static const List<String> _verwarmingOpties = [
     'Gasgestookte Ketel',
     'Lokaal Gasakachel',
@@ -71,6 +85,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
   BagData? _resolvedBagData;
   bool _isSaving = false;
   String _bagPdfStatus = 'Onbekend';
+  String _gebouwhoogte = '';
 
   String get _verwarmingTypeLabel {
     final index = _verwarmingType - 1;
@@ -86,7 +101,12 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     _bouwjaarController = TextEditingController(
       text: (widget.bagData.oorspronkelijkBouwjaar ?? '').trim(),
     );
-    _prefillBouwjaarFromBag();
+    _prefillInitialObjectData();
+  }
+
+  Future<void> _prefillInitialObjectData() async {
+    await _prefillBouwjaarFromBag();
+    await _prefillGebouwhoogteFrom3dBag();
   }
 
   @override
@@ -142,6 +162,33 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     } catch (_) {}
   }
 
+  Future<void> _prefillGebouwhoogteFrom3dBag() async {
+    final bagData = _resolvedBagData ?? widget.bagData;
+    final pandId = (bagData.bagPandId ?? '').trim();
+    if (pandId.isEmpty) {
+      return;
+    }
+
+    try {
+      final heightMeters = await ThreeDBagService.fetchGebouwhoogteMeters(
+        bagPandId: pandId,
+      );
+      if (heightMeters == null || heightMeters <= 0) {
+        return;
+      }
+
+      final formatted = heightMeters.toStringAsFixed(2);
+      if (!mounted) {
+        _gebouwhoogte = formatted;
+        return;
+      }
+
+      setState(() {
+        _gebouwhoogte = formatted;
+      });
+    } catch (_) {}
+  }
+
   Future<void> _createAndMailXml() async {
     _dismissKeyboard();
     setState(() {
@@ -150,6 +197,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
 
     try {
       await _prefillBouwjaarFromBag();
+      await _prefillGebouwhoogteFrom3dBag();
       final bagData = _resolvedBagData ?? widget.bagData;
       final bouwjaar = _resolveBouwjaarForExport();
       if (bouwjaar.isEmpty || bouwjaar == '0') {
@@ -167,6 +215,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         postcode: bagData.postcode.trim(),
         plaatsnaam: bagData.plaatsnaam.trim(),
         bouwjaar: bouwjaar,
+        gebouwhoogte: _gebouwhoogte,
         bagId: (bagData.bagIdentificatie ?? '').trim(),
         bagPandId: (bagData.bagPandId ?? '').trim(),
       );
@@ -181,12 +230,35 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         bagData: bagData,
         bouwjaar: bouwjaar,
       );
+      final beslisschemaPdfFile =
+          await OverigeRuimteBeslisschemaService.generatePdfFromSavedIfComplete(
+        dossierName: widget.dossierName,
+        bagData: bagData,
+      );
+      final opmerkingenPdfFile =
+          await OpmerkingenFormulierService.generatePdfFromSavedIfAny(
+        dossierName: widget.dossierName,
+        bagData: bagData,
+      );
+
+      final bagPandId = (bagData.bagPandId ?? '').trim();
+      final drieDbagImageFile = bagPandId.isEmpty
+          ? null
+          : await ThreeDBagService.createGebouwOverzichtImageForDossier(
+              bagPandId: bagPandId,
+              dossierName: widget.dossierName,
+            );
 
       final attachmentPaths = <String>[
         xmlFile.path,
         bagPdfFile.path,
         formulierPdfFile.path,
+        if (beslisschemaPdfFile != null) beslisschemaPdfFile.path,
+        if (opmerkingenPdfFile != null) opmerkingenPdfFile.path,
+        if (drieDbagImageFile != null) drieDbagImageFile.path,
       ];
+      final dropboxAddressFolderName = bagData.getFolderName();
+      final recipientEmail = await AppSettingsService.loadEmailRecipient();
 
       if (mounted) {
         setState(() {
@@ -195,20 +267,47 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       }
 
       final email = Email(
-        body: 'Bijgevoegd: XML export + BAG PDF + Formulier PDF voor ${widget.dossierName}.',
+        body:
+          'Bijgevoegd: XML export + BAG PDF + Formulier PDF'
+          '${beslisschemaPdfFile != null ? ' + Beslisschema PDF' : ''}'
+          '${opmerkingenPdfFile != null ? ' + Opmerkingen PDF' : ''}'
+          '${drieDbagImageFile != null ? ' + 3DBAG afbeelding' : ''} voor ${widget.dossierName}.',
         subject: 'XML export ${widget.dossierName}',
-        recipients: const ['info@pmlabels.nl'],
+        recipients: [recipientEmail],
         attachmentPaths: attachmentPaths,
         isHTML: false,
       );
 
       await FlutterEmailSender.send(email);
 
+      // Auto-upload naar Dropbox als verbonden
+      String dropboxInfo = '';
+      if (await DropboxService.isConnected()) {
+        final uploadFiles = attachmentPaths.map((p) => File(p)).toList();
+        final uploadResult = await DropboxService.uploadDossierFiles(
+          addressFolderName: dropboxAddressFolderName,
+          files: uploadFiles,
+        );
+        if (uploadResult.uploadedCount > 0) {
+          dropboxInfo =
+              '\n${uploadResult.uploadedCount} bestand${uploadResult.uploadedCount == 1 ? '' : 'en'} geüpload naar Dropbox.';
+        }
+        if (!uploadResult.isSuccess && (uploadResult.message?.isNotEmpty ?? false)) {
+          dropboxInfo = '$dropboxInfo\nDropbox: ${uploadResult.message}';
+        }
+      }
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'XML + BAG PDF + Formulier PDF aangemaakt en e-mail geopend. Bouwjaar: $bouwjaar (bron: ${_resolveBouwjaarBron()})',
+            'XML + BAG PDF + Formulier PDF'
+            '${beslisschemaPdfFile != null ? ' + Beslisschema PDF' : ''}'
+            '${opmerkingenPdfFile != null ? ' + Opmerkingen PDF' : ''}'
+            '${drieDbagImageFile != null ? ' + 3DBAG afbeelding' : ''} '
+            'aangemaakt en e-mail geopend. Bouwjaar: $bouwjaar '
+            '(bron: ${_resolveBouwjaarBron()})'
+            '${_gebouwhoogte.isNotEmpty ? ', Gebouwhoogte: ${_gebouwhoogte} m (3DBAG)' : ''}$dropboxInfo',
           ),
         ),
       );
@@ -222,6 +321,94 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       setState(() {
         _isSaving = false;
       });
+    }
+  }
+
+  Future<void> _uploadToDropbox() async {
+    if (!await DropboxService.isConnected()) {
+      if (!mounted) return;
+      final reason = DropboxService.lastError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            reason != null && reason.isNotEmpty
+                ? 'Dropbox is niet klaar voor uploaden: $reason'
+                : 'Dropbox is niet verbonden. Verbind via Instellingen.',
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() => _isSaving = true);
+    try {
+      await _prefillBouwjaarFromBag();
+      await _prefillGebouwhoogteFrom3dBag();
+      final bagData = _resolvedBagData ?? widget.bagData;
+      final bouwjaar = _resolveBouwjaarForExport();
+      if (bouwjaar.isEmpty || bouwjaar == '0') {
+        throw Exception('Geen bouwjaar. Vul bouwjaar handmatig in.');
+      }
+      final xmlFile = await XmlExportService.createXmlForDossier(
+        dossierName: widget.dossierName,
+        straat: (bagData.adres ?? '').trim(),
+        huisnummer: (bagData.huisnummer ?? '').trim(),
+        huisletterToevoeging:
+            (bagData.huisletterHuisnummertoevoeging ?? '').trim(),
+        postcode: bagData.postcode.trim(),
+        plaatsnaam: bagData.plaatsnaam.trim(),
+        bouwjaar: bouwjaar,
+        gebouwhoogte: _gebouwhoogte,
+        bagId: (bagData.bagIdentificatie ?? '').trim(),
+        bagPandId: (bagData.bagPandId ?? '').trim(),
+      );
+      final bagPdfFile = await BagService.downloadBagPdfForDossier(
+        apiKey: _bagApiKey,
+        dossierName: widget.dossierName,
+        bagData: bagData,
+      );
+      final formulierPdfFile = await _createFormulierPdfForMail(
+        bagData: bagData,
+        bouwjaar: bouwjaar,
+      );
+      final beslisschemaPdfFile =
+          await OverigeRuimteBeslisschemaService.generatePdfFromSavedIfComplete(
+        dossierName: widget.dossierName,
+        bagData: bagData,
+      );
+      final opmerkingenPdfFile =
+          await OpmerkingenFormulierService.generatePdfFromSavedIfAny(
+        dossierName: widget.dossierName,
+        bagData: bagData,
+      );
+      final dropboxAddressFolderName = bagData.getFolderName();
+      final uploadResult = await DropboxService.uploadDossierFiles(
+        addressFolderName: dropboxAddressFolderName,
+        files: [
+          xmlFile,
+          bagPdfFile,
+          formulierPdfFile,
+          if (beslisschemaPdfFile != null) beslisschemaPdfFile,
+          if (opmerkingenPdfFile != null) opmerkingenPdfFile,
+        ],
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            uploadResult.isSuccess
+                ? '${uploadResult.uploadedCount} bestand${uploadResult.uploadedCount == 1 ? '' : 'en'} geüpload naar de Dropbox app-map met adresprefix $dropboxAddressFolderName.'
+                : 'Dropbox upload deels/helemaal mislukt: ${uploadResult.message ?? 'onbekende fout'}',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Dropbox upload mislukt: $error')),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
     }
   }
 
@@ -284,51 +471,6 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
 
     await file.writeAsBytes(await doc.save(), flush: true);
     return file;
-  }
-
-  Future<void> _testBagPdf() async {
-    _dismissKeyboard();
-    setState(() {
-      _isSaving = true;
-    });
-
-    try {
-      await _prefillBouwjaarFromBag();
-      final bagData = _resolvedBagData ?? widget.bagData;
-      final bagPdfFile = await BagService.downloadBagPdfForDossier(
-        apiKey: _bagApiKey,
-        dossierName: widget.dossierName,
-        bagData: bagData,
-      );
-      final exists = await bagPdfFile.exists();
-      final size = exists ? await bagPdfFile.length() : 0;
-      if (!exists || size <= 0) {
-        throw Exception('BAG PDF ontbreekt of is leeg op pad: ${bagPdfFile.path}');
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _bagPdfStatus = 'Gegenereerd (${size} bytes)';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('BAG PDF gegenereerd: ${bagPdfFile.path} (${size} bytes)')),
-      );
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _bagPdfStatus = 'Fout';
-        });
-      }
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('BAG PDF test mislukt: $error')),
-      );
-    } finally {
-      if (!mounted) return;
-      setState(() {
-        _isSaving = false;
-      });
-    }
   }
 
   Future<void> _save() async {
@@ -413,27 +555,27 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(title, style: Theme.of(context).textTheme.titleSmall),
-        Row(
-          children: [
-            Expanded(
-              child: RadioListTile<bool>(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Ja'),
-                value: true,
-                groupValue: value,
-                onChanged: onChanged,
+        RadioGroup<bool>(
+          groupValue: value,
+          onChanged: onChanged,
+          child: Row(
+            children: [
+              Expanded(
+                child: RadioListTile<bool>(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Ja'),
+                  value: true,
+                ),
               ),
-            ),
-            Expanded(
-              child: RadioListTile<bool>(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Nee'),
-                value: false,
-                groupValue: value,
-                onChanged: onChanged,
+              Expanded(
+                child: RadioListTile<bool>(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Nee'),
+                  value: false,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
@@ -494,18 +636,46 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
                 final bagPandId = (widget.bagData.bagPandId ?? '-').trim().isEmpty
                     ? '-'
                     : (widget.bagData.bagPandId ?? '-').trim();
+                final gebouwhoogteDebug =
+                    _gebouwhoogte.isEmpty ? '-' : '$_gebouwhoogte m';
                 return Text(
                   'Debug bouwjaar export: ${previewBouwjaar.isEmpty ? '-': previewBouwjaar} (bron: $bron)\n'
-                  'BAG ids: adres=$bagAdresId | object=$bagObjectId | pand=$bagPandId',
+                  'BAG ids: adres=$bagAdresId | object=$bagObjectId | pand=$bagPandId\n'
+                  '3DBAG gebouwhoogte: $gebouwhoogteDebug',
                   style: Theme.of(context).textTheme.bodySmall,
                 );
               },
+            ),
+            const SizedBox(height: 8),
+            InputDecorator(
+              decoration: const InputDecoration(
+                labelText: '3DBAG gebouwhoogte (m)',
+                border: OutlineInputBorder(),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _gebouwhoogte.isEmpty ? '-' : _gebouwhoogte,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _isSaving
+                        ? null
+                        : () async {
+                            await _prefillGebouwhoogteFrom3dBag();
+                          },
+                    child: const Text('Ververs'),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
             Text('1. Vloer', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _vloerType,
+              initialValue: _vloerType,
               items: _vloerOpties
                   .map(
                     (optie) => DropdownMenuItem<String>(
@@ -534,7 +704,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
             Text('1. Ventilatie', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _ventilatieType,
+              initialValue: _ventilatieType,
               items: _ventilatieOpties
                   .map(
                     (optie) => DropdownMenuItem<String>(
@@ -556,7 +726,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
             Text('2. Verwarming', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
             DropdownButtonFormField<int>(
-              value: _verwarmingType,
+              initialValue: _verwarmingType,
               items: List<int>.generate(_verwarmingOpties.length, (index) => index + 1)
                   .map(
                     (optie) => DropdownMenuItem<int>(
@@ -578,7 +748,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
             Text('3. Tapwater', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _tapwaterType,
+              initialValue: _tapwaterType,
               items: _tapwaterOpties
                   .map(
                     (optie) => DropdownMenuItem<String>(
@@ -690,6 +860,15 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
                 icon: const Icon(Icons.mail_outline),
                 label: const Text('Afronden en mail'),
                 onPressed: _isSaving ? null : _createAndMailXml,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.cloud_upload),
+                label: const Text('Upload naar Dropbox'),
+                onPressed: _isSaving ? null : _uploadToDropbox,
               ),
             ),
                   ],

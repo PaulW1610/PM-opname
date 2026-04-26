@@ -7,12 +7,14 @@ import '../widgets/tagged_camera_capture_view.dart';
 class WwsPuntenScreen extends StatelessWidget {
   final BagData bagData;
   final String albumName;
+  final int initialPhotoNumber;
   final VoidCallback? onPhotoSaved;
 
   const WwsPuntenScreen({
     Key? key,
     required this.bagData,
     required this.albumName,
+    required this.initialPhotoNumber,
     this.onPhotoSaved,
   }) : super(key: key);
 
@@ -28,6 +30,7 @@ class WwsPuntenScreen extends StatelessWidget {
               child: TaggedCameraCaptureView(
                 bagData: bagData,
                 albumName: albumName,
+                initialPhotoNumber: initialPhotoNumber,
                 onPhotoSaved: onPhotoSaved,
                 labels: const [
                   '',

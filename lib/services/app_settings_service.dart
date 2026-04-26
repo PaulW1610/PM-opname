@@ -1,0 +1,93 @@
+import 'package:shared_preferences/shared_preferences.dart';
+
+class AppSettings {
+  final String emailRecipient;
+  final String examenNummerWonen;
+  final String examenNummerUtiliteit;
+  final String photoStorageLocation;
+  final double gpsBagRadiusMeters;
+
+  const AppSettings({
+    required this.emailRecipient,
+    required this.examenNummerWonen,
+    required this.examenNummerUtiliteit,
+    required this.photoStorageLocation,
+    required this.gpsBagRadiusMeters,
+  });
+
+  AppSettings copyWith({
+    String? emailRecipient,
+    String? examenNummerWonen,
+    String? examenNummerUtiliteit,
+    String? photoStorageLocation,
+    double? gpsBagRadiusMeters,
+  }) {
+    return AppSettings(
+      emailRecipient: emailRecipient ?? this.emailRecipient,
+      examenNummerWonen: examenNummerWonen ?? this.examenNummerWonen,
+      examenNummerUtiliteit: examenNummerUtiliteit ?? this.examenNummerUtiliteit,
+      photoStorageLocation: photoStorageLocation ?? this.photoStorageLocation,
+      gpsBagRadiusMeters: gpsBagRadiusMeters ?? this.gpsBagRadiusMeters,
+    );
+  }
+}
+
+class AppSettingsService {
+  static const String _emailRecipientKey = 'settings_email_recipient_v1';
+  static const String _examenWonenKey = 'settings_examen_wonen_v1';
+  static const String _examenUtiliteitKey = 'settings_examen_utiliteit_v1';
+  static const String _photoStorageKey = 'settings_photo_storage_v1';
+  static const String _gpsBagRadiusMetersKey = 'settings_gps_bag_radius_meters_v1';
+  static const String defaultEmailRecipient = 'info@pmlabels.nl';
+  static const double defaultGpsBagRadiusMeters = 50.0;
+  static const double minGpsBagRadiusMeters = 10.0;
+  static const double maxGpsBagRadiusMeters = 500.0;
+
+  static double sanitizeGpsBagRadiusMeters(double value) {
+    if (value.isNaN || value.isInfinite) {
+      return defaultGpsBagRadiusMeters;
+    }
+    final clamped = value.clamp(minGpsBagRadiusMeters, maxGpsBagRadiusMeters);
+    return clamped.toDouble();
+  }
+
+  static Future<AppSettings> loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedRadius = prefs.getDouble(_gpsBagRadiusMetersKey);
+    final gpsBagRadiusMeters = sanitizeGpsBagRadiusMeters(
+      storedRadius ?? defaultGpsBagRadiusMeters,
+    );
+    return AppSettings(
+      emailRecipient: (prefs.getString(_emailRecipientKey) ?? defaultEmailRecipient).trim(),
+      examenNummerWonen: (prefs.getString(_examenWonenKey) ?? '').trim(),
+      examenNummerUtiliteit: (prefs.getString(_examenUtiliteitKey) ?? '').trim(),
+      photoStorageLocation: (prefs.getString(_photoStorageKey) ?? '').trim(),
+      gpsBagRadiusMeters: gpsBagRadiusMeters,
+    );
+  }
+
+  static Future<void> saveSettings(AppSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_emailRecipientKey, settings.emailRecipient.trim());
+    await prefs.setString(_examenWonenKey, settings.examenNummerWonen.trim());
+    await prefs.setString(_examenUtiliteitKey, settings.examenNummerUtiliteit.trim());
+    await prefs.setString(_photoStorageKey, settings.photoStorageLocation.trim());
+    await prefs.setDouble(
+      _gpsBagRadiusMetersKey,
+      sanitizeGpsBagRadiusMeters(settings.gpsBagRadiusMeters),
+    );
+  }
+
+  static Future<String> loadEmailRecipient() async {
+    final settings = await loadSettings();
+    if (settings.emailRecipient.isNotEmpty) {
+      return settings.emailRecipient;
+    }
+    return defaultEmailRecipient;
+  }
+
+  static Future<double> loadGpsBagRadiusMeters() async {
+    final settings = await loadSettings();
+    return settings.gpsBagRadiusMeters;
+  }
+}

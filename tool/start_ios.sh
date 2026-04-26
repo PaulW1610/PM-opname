@@ -91,6 +91,14 @@ xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH" >/tmp/start
 
 xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing "$BUNDLE_ID" >/tmp/start_ios_launch.log 2>&1 || {
   echo "Launch van release app mislukt. Zie /tmp/start_ios_launch.log"
+  if grep -qi "not been explicitly trusted by the user\|invalid code signature\|inadequate entitlements" /tmp/start_ios_launch.log; then
+    echo "➡️ iOS blokkeert de app door trust/signing-instellingen."
+    echo "   1) Ontgrendel iPhone"
+    echo "   2) Ga naar Instellingen > Algemeen > VPN en apparaatbeheer"
+    echo "   3) Vertrouw het ontwikkelaarsprofiel van deze Mac/Apple ID"
+    echo "   4) Open de app 1x handmatig op de iPhone"
+    echo "   5) Run daarna opnieuw: ./tool/start_ios.sh --allow-reinstall"
+  fi
   exit 1
 }
 

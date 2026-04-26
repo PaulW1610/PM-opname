@@ -9,6 +9,12 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../services/bag_service.dart';
 import '../services/photo_library_service.dart';
+import '../services/stability_logger_service.dart';
+
+enum CameraControlsLayout {
+  bottom,
+  right,
+}
 
 bool _renderLabelOverlay(Map<String, String> payload) {
   final imagePath = payload['path'];
@@ -38,21 +44,48 @@ bool _renderLabelOverlay(Map<String, String> payload) {
 
   final text = rawLabel.toUpperCase();
   final font = img.arial_24;
-  final textX = 20;
-  final int textY = barTop + math.max(8, (barHeight - font.lineHeight) ~/ 2);
+  const textScale = 1.15;
+  final textWidth = math.max(1, _stringWidth(font, text));
+  final textHeight = math.max(1, img.findStringHeight(font, text));
+  final textLayer = img.Image(textWidth, textHeight);
+  img.fill(textLayer, img.getColor(0, 0, 0, 0));
 
   img.drawString(
-    decoded,
+    textLayer,
     font,
-    textX,
-    textY,
+    0,
+    0,
     text,
     color: img.getColor(255, 255, 255),
   );
 
+  final scaledTextLayer = img.copyResize(
+    textLayer,
+    width: math.max(1, (textWidth * textScale).round()),
+    height: math.max(1, (textHeight * textScale).round()),
+    interpolation: img.Interpolation.linear,
+  );
+
+  final textX = 20;
+  final int textY = barTop + math.max(8, (barHeight - scaledTextLayer.height) ~/ 2);
+  img.copyInto(decoded, scaledTextLayer, dstX: textX, dstY: textY, blend: true);
+
   final encoded = img.encodeJpg(decoded, quality: 92);
   file.writeAsBytesSync(encoded, flush: true);
   return true;
+}
+
+int _stringWidth(img.BitmapFont font, String value) {
+  var width = 0;
+  for (final codePoint in value.codeUnits) {
+    final character = font.characters[codePoint];
+    if (character == null) {
+      width += font.base ~/ 2;
+      continue;
+    }
+    width += character.xadvance;
+  }
+  return width;
 }
 
 class TaggedCameraCaptureView extends StatefulWidget {
@@ -60,7 +93,15 @@ class TaggedCameraCaptureView extends StatefulWidget {
   final List<String> labels;
   final Color accentColor;
   final String albumName;
+  final int initialPhotoNumber;
   final VoidCallback? onPhotoSaved;
+  final CameraControlsLayout controlsLayout;
+  final double controlsOpacity;
+  final bool transparentLabelButtons;
+  final bool compactLabelButtons;
+  final double labelButtonBlueOpacity;
+  final bool showCustomLabelCaptureButton;
+  final String customLabelButtonText;
 
   const TaggedCameraCaptureView({
     Key? key,
@@ -68,7 +109,15 @@ class TaggedCameraCaptureView extends StatefulWidget {
     required this.labels,
     required this.accentColor,
     required this.albumName,
+    required this.initialPhotoNumber,
     this.onPhotoSaved,
+    this.controlsLayout = CameraControlsLayout.bottom,
+    this.controlsOpacity = 1.0,
+    this.transparentLabelButtons = false,
+    this.compactLabelButtons = false,
+    this.labelButtonBlueOpacity = 0.0,
+    this.showCustomLabelCaptureButton = false,
+    this.customLabelButtonText = 'Eigen label',
   }) : super(key: key);
 
   @override
@@ -90,8 +139,10 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
   double _minZoom = 1.0;
   double _maxZoom = 1.0;
   double _zoomLevel = 1.0;
-  double _zoomSliderValue = 0.0;
   bool _torchEnabled = false;
+  double _pinchStartZoom = 1.0;
+  List<int> _backCameraIndices = const [];
+  late int _nextPhotoNumber;
   int? _standardBackCameraIndex;
   int? _ultraWideCameraIndex;
   static const List<ResolutionPreset> _resolutionFallbacks = <ResolutionPreset>[
@@ -104,28 +155,109 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     'Voorgevel',
   ];
 
+  String _lensTypeForName(String rawName) {
+    final name = rawName.toLowerCase();
+    if (name.contains('ultra_wide') ||
+        name.contains('ultra-wide') ||
+        name.contains('ultra wide') ||
+        name.contains('0.5x') ||
+        name.contains('0,5x') ||
+        name.contains('0.5') ||
+        name.contains('0,5') ||
+        name.contains('built_in_ultra_wide')) {
+      return 'ultra';
+    }
+    if (name.contains('telephoto') ||
+        name.contains('tele_photo') ||
+        name.contains('built_in_telephoto') ||
+        name.contains(' tele')) {
+      return 'tele';
+    }
+    if (name.contains('wide_angle') ||
+        name.contains('wide-angle') ||
+        name.contains('wide angle') ||
+        name.contains('built_in_wide_angle')) {
+      return 'wide';
+    }
+    return 'other';
+  }
+
+  int _lensTypePriority(String lensType) {
+    switch (lensType) {
+      case 'ultra':
+        return 0;
+      case 'wide':
+        return 1;
+      case 'tele':
+        return 2;
+      default:
+        return 9;
+    }
+  }
+
   void _resolveLensIndices(List<CameraDescription> cameras) {
     int? standardIndex;
     int? ultraIndex;
+    final backIndices = <int>[];
 
     for (var i = 0; i < cameras.length; i++) {
       final camera = cameras[i];
       if (camera.lensDirection != CameraLensDirection.back) {
         continue;
       }
-      final name = camera.name.toLowerCase();
-      final isUltra =
-          name.contains('ultra') || name.contains('0.5x') || name.contains('0.5');
+      backIndices.add(i);
+      final lensType = _lensTypeForName(camera.name);
 
-      if (isUltra) {
+      if (lensType == 'ultra') {
         ultraIndex ??= i;
-      } else {
+      } else if (lensType == 'wide') {
         standardIndex ??= i;
       }
+
+      standardIndex ??= i;
     }
 
+    backIndices.sort((left, right) {
+      final leftType = _lensTypeForName(cameras[left].name);
+      final rightType = _lensTypeForName(cameras[right].name);
+      final byType =
+          _lensTypePriority(leftType).compareTo(_lensTypePriority(rightType));
+      if (byType != 0) {
+        return byType;
+      }
+      return left.compareTo(right);
+    });
+
+    _backCameraIndices = backIndices;
     _standardBackCameraIndex = standardIndex ?? ultraIndex;
-    _ultraWideCameraIndex = ultraIndex;
+    _ultraWideCameraIndex = ultraIndex ?? (backIndices.length >= 2 ? backIndices.first : null);
+  }
+
+  String _cameraLabel(int index) {
+    if (index < 0 || index >= _cameras.length) {
+      return 'Lens';
+    }
+    if (index == 3) {
+      return '0.5';
+    }
+    if (index == 2) {
+      return '1.0';
+    }
+    if (index == 0) {
+      return '1.5';
+    }
+    final camera = _cameras[index];
+    final name = camera.name.toLowerCase();
+    if (name.contains('ultra') || name.contains('0.5')) {
+      return '0.5x';
+    }
+    if (name.contains('tele') || name.contains('2x') || name.contains('3x')) {
+      return 'Tele';
+    }
+    if (name.contains('wide')) {
+      return '1x';
+    }
+    return 'Lens ${index + 1}';
   }
 
   Future<CameraController> _createInitializedController(
@@ -192,7 +324,9 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
   @override
   void initState() {
     super.initState();
+    _nextPhotoNumber = widget.initialPhotoNumber < 1 ? 1 : widget.initialPhotoNumber;
     WidgetsBinding.instance.addObserver(this);
+    StabilityLoggerService.addBreadcrumb('camera_view_init');
     _initializeCamera();
   }
 
@@ -202,23 +336,26 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     _cameraSession++;
     _controller = null;
     WidgetsBinding.instance.removeObserver(this);
+    StabilityLoggerService.addBreadcrumb('camera_view_dispose');
     controller?.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    StabilityLoggerService.addBreadcrumb('app_lifecycle:$state');
     final controller = _controller;
-    if (controller == null) {
+    if (state == AppLifecycleState.inactive) {
       return;
     }
 
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused ||
+    if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      _cameraSession++;
-      controller.dispose();
-      _controller = null;
+      if (controller != null) {
+        _cameraSession++;
+        controller.dispose();
+        _controller = null;
+      }
       if (mounted) {
         setState(() {
           _isInitializing = true;
@@ -228,6 +365,10 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     }
 
     if (state == AppLifecycleState.resumed) {
+      final current = _controller;
+      if (current != null && current.value.isInitialized) {
+        return;
+      }
       _initializeCamera(preferredIndex: _cameraIndex);
     }
   }
@@ -246,6 +387,10 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     }
 
     try {
+      await StabilityLoggerService.recordEvent(
+        'camera_initialize_start',
+        data: {'preferredIndex': preferredIndex},
+      );
       final cameraPermission = await Permission.camera.request();
       if (!cameraPermission.isGranted) {
         if (!mounted || session != _cameraSession) return;
@@ -270,7 +415,8 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
       _resolveLensIndices(cameras);
 
       final selectedIndex = preferredIndex ??
-          (_standardBackCameraIndex ??
+          (_ultraWideCameraIndex ??
+              _standardBackCameraIndex ??
               cameras.indexWhere(
                 (camera) => camera.lensDirection == CameraLensDirection.back,
               ));
@@ -305,9 +451,22 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
         _minZoom = minZoom;
         _maxZoom = maxZoom;
         _zoomLevel = minZoom;
-        _zoomSliderValue = _zoomToSlider(minZoom);
       });
+      await StabilityLoggerService.recordEvent(
+        'camera_initialize_success',
+        data: {
+          'resolvedIndex': resolvedIndex,
+          'cameraCount': cameras.length,
+          'minZoom': minZoom,
+          'maxZoom': maxZoom,
+        },
+      );
     } catch (error) {
+      await StabilityLoggerService.recordException(
+        error,
+        StackTrace.current,
+        context: 'camera_initialize',
+      );
       if (!mounted || session != _cameraSession) return;
       setState(() {
         _isInitializing = false;
@@ -346,35 +505,43 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     if (!mounted) return;
     setState(() {
       _zoomLevel = clamped;
-      _zoomSliderValue = _zoomToSlider(clamped);
     });
   }
 
-  double _sliderToZoom(double sliderValue) {
-    if (_maxZoom <= _minZoom) {
-      return _minZoom;
+  List<int> _orderedLensIndices() {
+    if (_backCameraIndices.isEmpty) {
+      return const [];
     }
-    final normalized = sliderValue.clamp(0.0, 1.0);
-    final curved = math.pow(normalized, 2.2).toDouble();
-    final zoom = _minZoom + (_maxZoom - _minZoom) * curved;
-    return zoom.clamp(_minZoom, _maxZoom);
+    const preferred = [3, 2, 0];
+    final ordered = <int>[];
+    for (final index in preferred) {
+      if (_backCameraIndices.contains(index)) {
+        ordered.add(index);
+      }
+    }
+    for (final index in _backCameraIndices) {
+      if (!ordered.contains(index)) {
+        ordered.add(index);
+      }
+    }
+    return ordered;
   }
 
-  double _zoomToSlider(double zoomValue) {
-    if (_maxZoom <= _minZoom) {
-      return 0.0;
-    }
-    final normalized =
-        ((zoomValue - _minZoom) / (_maxZoom - _minZoom)).clamp(0.0, 1.0);
-    return math.pow(normalized, 1 / 2.2).toDouble();
+
+  void _onScaleStart(ScaleStartDetails details) {
+    _pinchStartZoom = _zoomLevel;
   }
 
-  Future<void> _setZoomFromSlider(double sliderValue) async {
-    if (!mounted) return;
-    setState(() {
-      _zoomSliderValue = sliderValue;
-    });
-    await _setZoom(_sliderToZoom(sliderValue));
+  void _onScaleUpdate(ScaleUpdateDetails details) {
+    if (details.pointerCount < 2) {
+      return;
+    }
+    final scale = details.scale;
+    if (scale <= 0) {
+      return;
+    }
+    final candidate = _pinchStartZoom * scale;
+    _setZoom(candidate);
   }
 
   Future<void> _captureAndSave(String label) async {
@@ -384,6 +551,10 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     }
 
     try {
+      await StabilityLoggerService.recordEvent(
+        'camera_capture_start',
+        data: {'label': label},
+      );
       setState(() {
         _isSaving = true;
       });
@@ -405,18 +576,31 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
       await _drawLabelOnImage(image.path, label);
 
       final albumName = widget.albumName;
+      final photoNumber = _nextPhotoNumber;
       await PhotoLibraryService.saveImageToAddressAlbum(
         imagePath: image.path,
         addressAlbumName: albumName,
+        photoFilePrefix: widget.bagData.getPhotoFilePrefix(),
+        photoSequenceNumber: photoNumber,
       );
 
       if (!mounted) return;
       setState(() {
         _lastSavedLabel = label;
         _savedLabels.add(_normalizeLabel(label));
+        _nextPhotoNumber = photoNumber + 1;
       });
+      await StabilityLoggerService.recordEvent(
+        'camera_capture_saved',
+        data: {'label': label},
+      );
       widget.onPhotoSaved?.call();
     } catch (error) {
+      await StabilityLoggerService.recordException(
+        error,
+        StackTrace.current,
+        context: 'camera_capture_save',
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Fout bij opslaan: $error')),
@@ -427,6 +611,45 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
         _isSaving = false;
       });
     }
+  }
+
+  Future<void> _captureWithCustomLabel() async {
+    if (_isSaving || _isInitializing) {
+      return;
+    }
+
+    final textController = TextEditingController();
+    final enteredLabel = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Label invoeren'),
+        content: TextField(
+          controller: textController,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(
+            hintText: 'Bijv. Meterkast',
+          ),
+          onSubmitted: (_) => Navigator.of(dialogContext).pop(textController.text),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Annuleren'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(textController.text),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+
+    final label = enteredLabel?.trim() ?? '';
+    if (label.isEmpty) {
+      return;
+    }
+    await _captureAndSave(label);
   }
 
   Future<void> _drawLabelOnImage(String imagePath, String label) async {
@@ -453,7 +676,12 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
       setState(() {
         _torchEnabled = nextState;
       });
+      await StabilityLoggerService.recordEvent(
+        'camera_torch_toggle',
+        data: {'enabled': nextState},
+      );
     } catch (_) {
+      await StabilityLoggerService.recordEvent('camera_torch_unavailable');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Zaklamp niet beschikbaar op deze camera')),
@@ -464,23 +692,41 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
   Widget _buildLabelButton(String label) {
     final isSelected = _lastSavedLabel == label;
     final isEmptyLabel = label.trim().isEmpty;
+    final opacity = widget.controlsOpacity.clamp(0.0, 1.0).toDouble();
+    final compact = widget.compactLabelButtons;
+    final transparent = widget.transparentLabelButtons;
+    final blueOpacity = widget.labelButtonBlueOpacity.clamp(0.0, 1.0).toDouble();
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
-        backgroundColor: isSelected
-            ? Colors.blue.shade700.withOpacity(0.70)
-            : Colors.blue.shade500.withOpacity(0.55),
+        backgroundColor: transparent
+        ? Colors.blue.withValues(alpha: blueOpacity)
+            : (isSelected
+                ? Colors.blue.shade700.withValues(alpha: opacity)
+                : Colors.blue.shade500.withValues(alpha: opacity)),
         foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        padding: compact
+          ? const EdgeInsets.symmetric(vertical: 6, horizontal: 8)
+            : const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        minimumSize: compact ? const Size(0, 36) : null,
+        tapTargetSize: compact ? MaterialTapTargetSize.shrinkWrap : null,
+        visualDensity: compact ? VisualDensity.compact : null,
         elevation: 0,
         shadowColor: Colors.transparent,
-        side: isEmptyLabel
-            ? BorderSide(color: Colors.white.withOpacity(0.6), width: 1)
-            : null,
+        side: BorderSide(
+          color: (isSelected ? widget.accentColor : Colors.white).withValues(
+            alpha: transparent ? opacity : (isEmptyLabel ? 0.6 : 0.0),
+          ),
+          width: transparent || isEmptyLabel ? 1 : 0,
+        ),
       ),
       onPressed: (_isSaving || _isInitializing) ? null : () => _captureAndSave(label),
       child: isEmptyLabel
-          ? const SizedBox(width: 48, height: 20)
-          : Text(label, textAlign: TextAlign.center),
+          ? SizedBox(width: compact ? 33 : 48, height: compact ? 17 : 20)
+          : Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: compact ? 14 : null),
+            ),
     );
   }
 
@@ -490,204 +736,282 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     final hasPreview = controller != null && controller.value.isInitialized;
     final controlsHeight = math.min(170.0, MediaQuery.of(context).size.height * 0.24);
 
-    return WillPopScope(
-      onWillPop: _handleBackNavigation,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) {
+          return;
+        }
+        final shouldPop = await _handleBackNavigation();
+        if (shouldPop && mounted) {
+          Navigator.of(context).pop();
+        }
+      },
       child: Padding(
         padding: const EdgeInsets.all(8),
-        child: Column(
+        child: widget.controlsLayout == CameraControlsLayout.right
+            ? _buildRightControlsLayout(hasPreview)
+            : _buildBottomControlsLayout(hasPreview, controlsHeight),
+      ),
+    );
+  }
+
+  Widget _buildBottomControlsLayout(bool hasPreview, double controlsHeight) {
+    return Column(
+      children: [
+        Expanded(child: _buildCameraPreview(hasPreview)),
+        const SizedBox(height: 6),
+        SizedBox(
+          height: controlsHeight,
+          child: SingleChildScrollView(
+            child: _buildControlsContent(hasPreview, stackedButtons: false),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRightControlsLayout(bool hasPreview) {
+    final maxWidth = MediaQuery.of(context).size.width;
+    final panelWidth = (maxWidth * 0.42).clamp(210.0, 320.0);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _buildCameraPreview(hasPreview),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Container(
+              width: panelWidth,
+              margin: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(10),
+              child: SingleChildScrollView(
+                child: _buildControlsContent(hasPreview, stackedButtons: true),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCameraPreview(bool hasPreview) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        color: Colors.black,
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  color: Colors.black,
-                  child: Stack(
-                    fit: StackFit.expand,
+            if (hasPreview)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onScaleStart: _onScaleStart,
+                onScaleUpdate: _onScaleUpdate,
+                child: CameraPreview(_controller!),
+              )
+            else
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (hasPreview)
-                        CameraPreview(controller!)
-                      else
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  _isInitializing
-                                      ? 'Camera wordt gestart...'
-                                      : (_cameraErrorMessage ??
-                                          'Camera niet beschikbaar'),
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(color: Colors.white),
-                                ),
-                                const SizedBox(height: 12),
-                                ElevatedButton(
-                                  onPressed: _isInitializing
-                                      ? null
-                                      : () => _initializeCamera(
-                                            preferredIndex: _cameraIndex,
-                                          ),
-                                  child: const Text('Opnieuw proberen'),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      Positioned(
-                        top: 8,
-                        left: 8,
-                        child: IconButton(
-                          onPressed: _toggleTorch,
-                          icon: Icon(
-                            _torchEnabled ? Icons.flash_on : Icons.flash_off,
-                            color: _torchEnabled ? Colors.amber : Colors.white,
-                          ),
-                        ),
+                      Text(
+                        _isInitializing
+                            ? 'Camera wordt gestart...'
+                            : (_cameraErrorMessage ?? 'Camera niet beschikbaar'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white),
                       ),
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: IconButton(
-                          onPressed: _switchCamera,
-                          icon: const Icon(Icons.cameraswitch, color: Colors.white),
-                        ),
-                      ),
-                      if (_torchEnabled)
-                        Positioned(
-                          top: 12,
-                          left: 56,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black38,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.flash_on, color: Colors.amber, size: 16),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Zaklamp AAN',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: _isInitializing
+                            ? null
+                            : () => _initializeCamera(
+                                  preferredIndex: _cameraIndex,
                                 ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      if (_isSaving)
-                        const Center(
-                          child: CircularProgressIndicator(),
-                        ),
+                        child: const Text('Opnieuw proberen'),
+                      ),
                     ],
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 6),
-            SizedBox(
-              height: controlsHeight,
-              child: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    if (_ultraWideCameraIndex != null && _standardBackCameraIndex != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Wrap(
-                          spacing: 8,
-                          alignment: WrapAlignment.center,
-                          children: [
-                            OutlinedButton(
-                              onPressed: (hasPreview && !_isSaving)
-                                  ? () => _switchToLensIndex(_ultraWideCameraIndex)
-                                  : null,
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor:
-                                    (_cameraIndex == _ultraWideCameraIndex)
-                                        ? Colors.white.withOpacity(0.18)
-                                        : Colors.transparent,
-                              ),
-                              child: const Text('0.5x'),
-                            ),
-                            OutlinedButton(
-                              onPressed: (hasPreview && !_isSaving)
-                                  ? () => _switchToLensIndex(_standardBackCameraIndex)
-                                  : null,
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor:
-                                    (_cameraIndex == _standardBackCameraIndex)
-                                        ? Colors.white.withOpacity(0.18)
-                                        : Colors.transparent,
-                              ),
-                              child: const Text('1x'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    Row(
-                      children: [
-                        const Icon(Icons.zoom_out),
-                        Expanded(
-                          child: Slider(
-                            value: _zoomSliderValue,
-                            min: 0.0,
-                            max: 1.0,
-                            onChanged: (hasPreview && !_isSaving)
-                                ? _setZoomFromSlider
-                                : null,
-                          ),
-                        ),
-                        const Icon(Icons.zoom_in),
-                      ],
-                    ),
-                    if (_lastSavedLabel != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          'Laatst opgeslagen: $_lastSavedLabel',
-                          style: TextStyle(
-                            color: widget.accentColor,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        alignment: WrapAlignment.center,
-                        children: _requiredFacadeLabels
-                            .map((label) => _buildCheckPill(label, _hasSavedLabel(label)))
-                            .toList(),
-                      ),
-                    ),
-                    Text(
-                      'Locatie: ${widget.albumName}',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      alignment: WrapAlignment.center,
-                      children: widget.labels.map(_buildLabelButton).toList(),
-                    ),
-                  ],
+            Positioned(
+              top: 8,
+              left: 8,
+              child: IconButton(
+                onPressed: _toggleTorch,
+                icon: Icon(
+                  _torchEnabled ? Icons.flash_on : Icons.flash_off,
+                  color: _torchEnabled ? Colors.amber : Colors.white,
                 ),
               ),
             ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                onPressed: _switchCamera,
+                icon: const Icon(Icons.cameraswitch, color: Colors.white),
+              ),
+            ),
+            if (_torchEnabled)
+              Positioned(
+                top: 12,
+                left: 56,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black38,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.flash_on, color: Colors.amber, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Zaklamp AAN',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (_isSaving)
+              const Center(
+                child: CircularProgressIndicator(),
+              ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildControlsContent(bool hasPreview, {required bool stackedButtons}) {
+    final orderedLensIndices = _orderedLensIndices();
+    return Column(
+      crossAxisAlignment:
+          stackedButtons ? CrossAxisAlignment.end : CrossAxisAlignment.center,
+      children: [
+        if (orderedLensIndices.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: stackedButtons
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: orderedLensIndices
+                        .map(
+                          (lensIndex) => Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: OutlinedButton(
+                              onPressed: (hasPreview && !_isSaving)
+                                  ? () => _switchToLensIndex(lensIndex)
+                                  : null,
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: (_cameraIndex == lensIndex)
+                                    ? Colors.white.withValues(alpha: 0.18)
+                                    : Colors.transparent,
+                                foregroundColor: Colors.white,
+                                textStyle: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 12,
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: Text(_cameraLabel(lensIndex)),
+                            ),
+                          ),
+                        )
+                        .toList(growable: false),
+                  )
+                : Wrap(
+                    spacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: orderedLensIndices.map((lensIndex) {
+                      return OutlinedButton(
+                        onPressed: (hasPreview && !_isSaving)
+                            ? () => _switchToLensIndex(lensIndex)
+                            : null,
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: (_cameraIndex == lensIndex)
+                              ? Colors.white.withValues(alpha: 0.18)
+                              : Colors.transparent,
+                          foregroundColor: Colors.white,
+                          textStyle: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 12,
+                          ),
+                        ),
+                        child: Text(_cameraLabel(lensIndex)),
+                      );
+                    }).toList(growable: false),
+                  ),
+          ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: _requiredFacadeLabels
+                .map((label) => _buildCheckPill(label, _hasSavedLabel(label)))
+                .toList(),
+          ),
+        ),
+        const SizedBox(height: 2),
+        if (stackedButtons)
+          Column(
+            children: widget.labels
+                .map(
+                  (label) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _buildLabelButton(label),
+                  ),
+                )
+                .toList(),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: widget.labels.map(_buildLabelButton).toList(),
+          ),
+        if (widget.showCustomLabelCaptureButton)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: OutlinedButton.icon(
+              onPressed: (hasPreview && !_isSaving)
+                  ? _captureWithCustomLabel
+                  : null,
+              icon: const Icon(Icons.edit),
+              label: Text(widget.customLabelButtonText),
+              style: OutlinedButton.styleFrom(
+                backgroundColor: const Color(0xFF006FAF),
+                foregroundColor: Colors.white,
+                side: BorderSide(
+                  color: const Color(0xFF005A90),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -696,8 +1020,8 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: ok
-            ? Colors.green.shade600.withOpacity(0.72)
-            : Colors.grey.shade700.withOpacity(0.62),
+            ? Colors.green.shade600.withValues(alpha: 0.72)
+            : Colors.grey.shade700.withValues(alpha: 0.62),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(

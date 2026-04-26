@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
+	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -67,6 +67,21 @@
 	<array>
 		<string>_dartVmService._tcp</string>
 		<string>_dartobservatory._tcp</string>
+	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>nl.paulweijers.photoorganizerapp</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>nl.paulweijers.photoorganizerapp</string>
+			</array>
+		</dict>
 	</array>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>

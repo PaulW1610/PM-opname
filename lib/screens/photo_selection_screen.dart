@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/bag_service.dart';
 import 'wonen_screen.dart';
+import 'wonen2_screen.dart';
 import 'utiliteit_screen.dart';
 import 'wws_punten_screen.dart';
 
@@ -30,6 +31,8 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
   late final TextEditingController _albumNameController;
   int _capturedPhotoCount = 0;
 
+  String get _defaultAlbumName => widget.bagData.getFolderName();
+
   @override
   void initState() {
     super.initState();
@@ -41,11 +44,22 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
 
   String _currentAlbumName() {
     final value = _albumNameController.text.trim();
-    final source = value.isEmpty ? widget.bagData.getFolderName() : value;
+    final source = value.isEmpty ? _defaultAlbumName : value;
     final sanitized = source
         .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
         .trim();
     return sanitized.isEmpty ? 'Onbekend adres' : sanitized;
+  }
+
+  void _resetAlbumName() {
+    _albumNameController.text = _defaultAlbumName;
+    _albumNameController.selection = TextSelection.fromPosition(
+      TextPosition(offset: _albumNameController.text.length),
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Mapnaam hersteld naar standaard')),
+    );
+    setState(() {});
   }
 
   @override
@@ -86,7 +100,9 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
     return false;
   }
 
-  Future<void> _requestCameraAndOpen(Widget Function(VoidCallback onPhotoSaved) builder) async {
+  Future<void> _requestCameraAndOpen(
+    Widget Function(int nextPhotoNumber, VoidCallback onPhotoSaved) builder,
+  ) async {
     final hasPhotosPermission = await _ensurePhotosPermission();
     if (!hasPhotosPermission) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -99,7 +115,7 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
     if (status.isGranted) {
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => builder(() {
+          builder: (_) => builder(_capturedPhotoCount + 1, () {
             if (!mounted) return;
             setState(() {
               _capturedPhotoCount += 1;
@@ -142,9 +158,22 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
   /// Request camera permission and open Wonen screen.
   Future<void> _openWonen(BuildContext context) async {
     await _requestCameraAndOpen(
-      (onPhotoSaved) => WonenScreen(
+      (nextPhotoNumber, onPhotoSaved) => WonenScreen(
         bagData: widget.bagData,
         albumName: _currentAlbumName(),
+        initialPhotoNumber: nextPhotoNumber,
+        onPhotoSaved: onPhotoSaved,
+      ),
+    );
+  }
+
+  /// Request camera permission and open Wonen 2 screen.
+  Future<void> _openWonen2(BuildContext context) async {
+    await _requestCameraAndOpen(
+      (nextPhotoNumber, onPhotoSaved) => Wonen2Screen(
+        bagData: widget.bagData,
+        albumName: _currentAlbumName(),
+        initialPhotoNumber: nextPhotoNumber,
         onPhotoSaved: onPhotoSaved,
       ),
     );
@@ -153,9 +182,10 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
   /// Request camera permission and open Utiliteit screen.
   Future<void> _openUtiliteit(BuildContext context) async {
     await _requestCameraAndOpen(
-      (onPhotoSaved) => UtiiteitScreen(
+      (nextPhotoNumber, onPhotoSaved) => UtiiteitScreen(
         bagData: widget.bagData,
         albumName: _currentAlbumName(),
+        initialPhotoNumber: nextPhotoNumber,
         onPhotoSaved: onPhotoSaved,
       ),
     );
@@ -164,9 +194,10 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
   /// Request camera permission and open WWS Punten screen.
   Future<void> _openWwsPunten(BuildContext context) async {
     await _requestCameraAndOpen(
-      (onPhotoSaved) => WwsPuntenScreen(
+      (nextPhotoNumber, onPhotoSaved) => WwsPuntenScreen(
         bagData: widget.bagData,
         albumName: _currentAlbumName(),
+        initialPhotoNumber: nextPhotoNumber,
         onPhotoSaved: onPhotoSaved,
       ),
     );
@@ -179,8 +210,14 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: _onWillPop,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          return;
+        }
+        _onWillPop();
+      },
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Selecteer categorie'),
@@ -196,7 +233,7 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
               Padding(
                 padding: const EdgeInsets.all(20),
                 child: Text(
-                  'Adres-album: ${widget.bagData.getFolderName()}',
+                  'Adres-album: $_defaultAlbumName',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
@@ -210,9 +247,17 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: TextField(
                   controller: _albumNameController,
-                  decoration: const InputDecoration(
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
                     labelText: 'Mapnaam aanpassen',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
+                    suffixIcon: _albumNameController.text.trim() == _defaultAlbumName
+                        ? null
+                        : IconButton(
+                            tooltip: 'Herstel standaard',
+                            icon: const Icon(Icons.refresh),
+                            onPressed: _resetAlbumName,
+                          ),
                   ),
                 ),
               ),
@@ -221,6 +266,12 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
                 icon: const Icon(Icons.home),
                 label: const Text('Categorie: Wonen'),
                 onPressed: () => _openWonen(context),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.home_work),
+                label: const Text('Categorie: Wonen 2'),
+                onPressed: () => _openWonen2(context),
               ),
               const SizedBox(height: 12),
               ElevatedButton.icon(

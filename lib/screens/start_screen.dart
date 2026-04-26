@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:math' as math;
+import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
 import '../services/location_service.dart';
+import 'beslisschemas_screen.dart';
+import 'instellingen_screen.dart';
 import 'opname_afsluiten_screen.dart';
 import 'photo_selection_screen.dart';
 
@@ -25,12 +30,14 @@ class _StartScreenState extends State<StartScreen> {
   static const String _bagApiKey =
       String.fromEnvironment('BAG_API_KEY', defaultValue: 'l79175a82fbd564ef8b7ac64e4b7857001');
   static const String _savedDossiersKey = 'saved_dossiers_v1';
+  static const double _defaultGpsBagRadiusMeters = 50.0;
+  static const int _targetBagCandidateCount = 6;
 
   BagData? _bagData;
   List<BagData> _bagCandidates = const <BagData>[];
   bool _isLoading = false;
   int _lastPhotoCount = 0;
-  String _bagDebugInfo = '';
+  double _gpsBagRadiusMeters = _defaultGpsBagRadiusMeters;
   int _activeFetchId = 0;
   final TextEditingController _manualAddressController = TextEditingController();
   final TextEditingController _manualPostcodeController = TextEditingController();
@@ -41,6 +48,27 @@ class _StartScreenState extends State<StartScreen> {
   void initState() {
     super.initState();
     _loadSavedDossiers();
+    _loadLookupSettings();
+  }
+
+  Future<void> _loadLookupSettings() async {
+    final radius = await AppSettingsService.loadGpsBagRadiusMeters();
+    if (!mounted) {
+      _gpsBagRadiusMeters = radius;
+      return;
+    }
+    setState(() {
+      _gpsBagRadiusMeters = radius;
+    });
+  }
+
+  Future<void> _openInstellingen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const InstellingenScreen(),
+      ),
+    );
+    await _loadLookupSettings();
   }
 
   Future<void> _loadSavedDossiers() async {
@@ -104,7 +132,7 @@ class _StartScreenState extends State<StartScreen> {
   }
 
   Future<void> _selectSavedDossier(BagData bagData) async {
-    final savedCount = await _loadPhotoCountForAddress(bagData.getFolderName());
+    final savedCount = await _loadPhotoCountForAddress(bagData);
     if (!mounted) return;
     setState(() {
       _bagData = bagData;
@@ -195,26 +223,25 @@ class _StartScreenState extends State<StartScreen> {
     if (!mounted) return;
     setState(() {
       _isLoading = false;
-      _bagDebugInfo = 'Adres ophalen geannuleerd';
     });
   }
 
-  String _counterKeyForAddress(String addressFolderName) {
-    final encoded = Uri.encodeComponent(addressFolderName.trim());
+  String _counterKeyForAddress(BagData bagData) {
+    final encoded = Uri.encodeComponent(bagData.getPhotoCounterScope());
     return 'photo_count_$encoded';
   }
 
-  Future<int> _loadPhotoCountForAddress(String addressFolderName) async {
+  Future<int> _loadPhotoCountForAddress(BagData bagData) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_counterKeyForAddress(addressFolderName)) ?? 0;
+    return prefs.getInt(_counterKeyForAddress(bagData)) ?? 0;
   }
 
   Future<void> _savePhotoCountForAddress({
-    required String addressFolderName,
+    required BagData bagData,
     required int count,
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_counterKeyForAddress(addressFolderName), count);
+    await prefs.setInt(_counterKeyForAddress(bagData), count);
   }
 
   String _extractHouseNumber(Placemark? placemark) {
@@ -288,7 +315,7 @@ class _StartScreenState extends State<StartScreen> {
       postcode: '-',
       plaatsnaam: '',
     );
-    final savedCount = await _loadPhotoCountForAddress(bagData.getFolderName());
+    final savedCount = await _loadPhotoCountForAddress(bagData);
     if (!mounted) return;
     setState(() {
       _bagData = bagData;
@@ -355,6 +382,133 @@ class _StartScreenState extends State<StartScreen> {
     ].join('|');
   }
 
+  bool _isSelectedBagCandidate(BagData candidate) {
+    final selected = _bagData;
+    if (selected == null) {
+      return false;
+    }
+    return _candidateIdentityKey(selected) == _candidateIdentityKey(candidate);
+  }
+
+  Color _lookupStatusColor(String level) {
+    switch (level) {
+      case 'error':
+        return Colors.red.shade700;
+      case 'fallback':
+        return Colors.orange.shade800;
+      case 'ok':
+      default:
+        return Colors.green.shade700;
+    }
+  }
+
+  String _candidateStatusLevel(BagData candidate) {
+    final isSelected = _isSelectedBagCandidate(candidate);
+    final matchesCurrentInput = _matchesCurrentInput(candidate);
+
+    if (isSelected || matchesCurrentInput) {
+      return 'ok';
+    }
+
+    final hasAdresId = (candidate.bagAdresId ?? '').trim().isNotEmpty;
+    final hasPandId = (candidate.bagPandId ?? '').trim().isNotEmpty;
+    final hasObjectId = (candidate.adresseerbaarObjectId ?? '').trim().isNotEmpty;
+
+    if (hasAdresId || hasPandId || hasObjectId) {
+      return 'fallback';
+    }
+
+    final postcode = candidate.postcode.trim();
+    if (postcode.isEmpty || postcode.contains(',')) {
+      return 'error';
+    }
+
+    return 'fallback';
+  }
+
+  String _candidateStatusText(BagData candidate) {
+    final isSelected = _isSelectedBagCandidate(candidate);
+    final matchesCurrentInput = _matchesCurrentInput(candidate);
+
+    if (isSelected) {
+      return 'Geselecteerd adres';
+    }
+    if (matchesCurrentInput) {
+      return 'Huidige locatie match';
+    }
+
+    switch (_candidateStatusLevel(candidate)) {
+      case 'ok':
+        return 'Waarschijnlijke match';
+      case 'fallback':
+        return 'Alternatief BAG-adres';
+      case 'error':
+      default:
+        return 'Onzekere match';
+    }
+  }
+
+  String _normalizePostcode(String value) {
+    return value.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+  }
+
+  String _normalizeHuisnummer(String value) {
+    return value.trim().toLowerCase();
+  }
+
+  String _extractHuisnummerNumeric(String value) {
+    return RegExp(r'^\d+').stringMatch(value.trim()) ?? '';
+  }
+
+  bool _matchesCurrentInput(BagData candidate) {
+    final inputPostcode = _normalizePostcode(_manualPostcodeController.text);
+    final inputHuisnummer = _normalizeHuisnummer(_manualHuisnummerController.text);
+    if (inputPostcode.isEmpty || inputHuisnummer.isEmpty) {
+      return false;
+    }
+
+    final candidatePostcode = _normalizePostcode(candidate.postcode);
+    if (candidatePostcode != inputPostcode) {
+      return false;
+    }
+
+    final candidateHuisnummer = _normalizeHuisnummer(candidate.huisnummer ?? '');
+    if (candidateHuisnummer.isEmpty) {
+      return false;
+    }
+
+    if (candidateHuisnummer == inputHuisnummer) {
+      return true;
+    }
+
+    final inputNumeric = _extractHuisnummerNumeric(inputHuisnummer);
+    final candidateNumeric = _extractHuisnummerNumeric(candidateHuisnummer);
+    if (inputNumeric.isNotEmpty && candidateNumeric.isNotEmpty) {
+      return inputNumeric == candidateNumeric;
+    }
+
+    return false;
+  }
+
+  double? _distanceToCandidateMeters({
+    required BagData candidate,
+    required double latitude,
+    required double longitude,
+  }) {
+    final candidateLat = candidate.latitude;
+    final candidateLon = candidate.longitude;
+    if (candidateLat == null || candidateLon == null) {
+      return null;
+    }
+
+    return Geolocator.distanceBetween(
+      latitude,
+      longitude,
+      candidateLat,
+      candidateLon,
+    );
+  }
+
   List<MapEntry<String, String>> _collectLookupPairs(List<Placemark> placemarks) {
     final pairs = <MapEntry<String, String>>[];
     final seen = <String>{};
@@ -374,6 +528,135 @@ class _StartScreenState extends State<StartScreen> {
     return pairs;
   }
 
+  Future<List<MapEntry<int, List<Placemark>>>> _sampleNearbyPlacemarkBatches({
+    required double latitude,
+    required double longitude,
+    int maxRequests = 18,
+  }) async {
+    final batches = <MapEntry<int, List<Placemark>>>[];
+    if (maxRequests <= 0) {
+      return batches;
+    }
+
+    const radiiInMeters = <double>[30, 70, 140, 240, 360];
+    const directionsPerRing = <int>[8, 8, 6, 4, 4];
+    var requestCount = 0;
+
+    for (var ring = 0; ring < radiiInMeters.length; ring++) {
+      final radius = radiiInMeters[ring];
+      final steps = directionsPerRing[ring];
+
+      for (var step = 0; step < steps; step++) {
+        if (requestCount >= maxRequests) {
+          return batches;
+        }
+
+        final radians = (step * (360.0 / steps)) * math.pi / 180.0;
+        final eastMeters = math.sin(radians) * radius;
+        final northMeters = math.cos(radians) * radius;
+        final latDelta = northMeters / 111320.0;
+        final metersPerLonDegree =
+            111320.0 * math.cos(latitude * math.pi / 180.0);
+        final lonDelta = metersPerLonDegree.abs() < 0.000001
+            ? 0.0
+            : eastMeters / metersPerLonDegree;
+
+        final sampleLat = latitude + latDelta;
+        final sampleLon = longitude + lonDelta;
+
+        try {
+          final sampledPlacemarks = await placemarkFromCoordinates(
+            sampleLat,
+            sampleLon,
+          ).timeout(const Duration(seconds: 6));
+          batches.add(MapEntry(requestCount + 1, sampledPlacemarks));
+        } catch (_) {}
+
+        requestCount++;
+      }
+    }
+
+    return batches;
+  }
+
+  Future<List<MapEntry<String, String>>> _collectLookupPairsAroundPosition({
+    required List<Placemark> seedPlacemarks,
+    required List<MapEntry<int, List<Placemark>>> sampledPlacemarkBatches,
+  }) async {
+    final pairs = <MapEntry<String, String>>[];
+    final seen = <String>{};
+
+    void addPairs(Iterable<MapEntry<String, String>> inputPairs) {
+      for (final pair in inputPairs) {
+        final key = '${pair.key.toUpperCase()}|${pair.value.toLowerCase()}';
+        if (seen.add(key)) {
+          pairs.add(pair);
+        }
+      }
+    }
+
+    addPairs(_collectLookupPairs(seedPlacemarks));
+
+    for (final batch in sampledPlacemarkBatches) {
+      if (pairs.length >= 40) {
+        break;
+      }
+
+      addPairs(_collectLookupPairs(batch.value));
+    }
+
+    return pairs;
+  }
+
+  Future<List<MapEntry<BagData, int>>> _collectNearbyPlacemarkCandidates({
+    required List<Placemark> seedPlacemarks,
+    required List<MapEntry<int, List<Placemark>>> sampledPlacemarkBatches,
+  }) async {
+    final collected = <MapEntry<BagData, int>>[];
+    final seen = <String>{};
+
+    void addPlacemarkCandidates(List<Placemark> placemarks, int rank) {
+      for (final placemark in placemarks.take(2)) {
+        final straat = (placemark.thoroughfare ?? placemark.street ?? '').trim();
+        final huisnummer = _extractHouseNumberFallback(placemark);
+        final postcode = _extractPostcode(placemark);
+        final plaats = (placemark.locality ??
+                placemark.subAdministrativeArea ??
+                placemark.administrativeArea ??
+                '')
+            .trim();
+
+        if (straat.isEmpty || huisnummer.isEmpty || postcode.isEmpty || plaats.isEmpty) {
+          continue;
+        }
+
+        final candidate = BagData(
+          adres: straat,
+          huisnummer: huisnummer,
+          postcode: postcode,
+          plaatsnaam: plaats,
+        );
+
+        final key = _candidateIdentityKey(candidate);
+        if (seen.add(key)) {
+          collected.add(MapEntry(candidate, rank));
+        }
+      }
+    }
+
+    addPlacemarkCandidates(seedPlacemarks, 0);
+
+    for (final batch in sampledPlacemarkBatches) {
+      if (collected.length >= 16) {
+        break;
+      }
+
+      addPlacemarkCandidates(batch.value, batch.key);
+    }
+
+    return collected;
+  }
+
   Future<void> _searchBagByManualPair() async {
     if (_isLoading) return;
 
@@ -391,7 +674,6 @@ class _StartScreenState extends State<StartScreen> {
     if (!mounted) return;
     setState(() {
       _isLoading = true;
-      _bagDebugInfo = 'BAG handmatig zoeken: postcode=$postcode, huisnummer=$huisnummer';
     });
 
     try {
@@ -409,7 +691,7 @@ class _StartScreenState extends State<StartScreen> {
 
       var photoCount = 0;
       if (selected != null) {
-        photoCount = await _loadPhotoCountForAddress(selected.getFolderName());
+        photoCount = await _loadPhotoCountForAddress(selected);
         if (!mounted || fetchId != _activeFetchId) return;
       }
 
@@ -417,8 +699,6 @@ class _StartScreenState extends State<StartScreen> {
         _bagCandidates = candidates;
         _bagData = selected;
         _lastPhotoCount = photoCount;
-        _bagDebugInfo =
-            'BAG handmatig: ${candidates.length} kandidaten voor $postcode $huisnummer';
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -433,7 +713,6 @@ class _StartScreenState extends State<StartScreen> {
     } catch (error) {
       if (!mounted || fetchId != _activeFetchId) return;
       setState(() {
-        _bagDebugInfo = 'BAG handmatig fout: $error';
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('BAG handmatig zoeken mislukt: $error')),
@@ -447,7 +726,7 @@ class _StartScreenState extends State<StartScreen> {
   }
 
   Future<void> _selectBagCandidate(BagData candidate) async {
-    final savedCount = await _loadPhotoCountForAddress(candidate.getFolderName());
+    final savedCount = await _loadPhotoCountForAddress(candidate);
     if (!mounted) return;
     setState(() {
       _bagData = candidate;
@@ -462,6 +741,10 @@ class _StartScreenState extends State<StartScreen> {
   Future<void> _fetchAddress() async {
     if (_isLoading) return;
     final fetchId = ++_activeFetchId;
+
+    final latestRadius = await AppSettingsService.loadGpsBagRadiusMeters();
+    if (!mounted || fetchId != _activeFetchId) return;
+    _gpsBagRadiusMeters = latestRadius;
 
     if (kIsWeb) {
       // Demo-adres voor web
@@ -493,7 +776,6 @@ class _StartScreenState extends State<StartScreen> {
     if (!mounted || fetchId != _activeFetchId) return;
     setState(() {
       _isLoading = true;
-      _bagDebugInfo = 'Adres ophalen gestart...';
     });
 
     try {
@@ -511,6 +793,7 @@ class _StartScreenState extends State<StartScreen> {
       // Lookup BAG data
       BagData? selectedBagData;
       List<BagData> candidateBagData = <BagData>[];
+      final candidateNearestRank = <String, int>{};
       List<Placemark> placemarks = const <Placemark>[];
       try {
         placemarks = await placemarkFromCoordinates(
@@ -545,8 +828,14 @@ class _StartScreenState extends State<StartScreen> {
       if (_manualHuisnummerController.text.trim().isEmpty && huisnummer.isNotEmpty) {
         _manualHuisnummerController.text = huisnummer;
       }
-      _bagDebugInfo = 'BAG input: postcode=$postcode, huisnummer=$huisnummer';
-      final lookupPairs = _collectLookupPairs(placemarks);
+      final sampledPlacemarkBatches = await _sampleNearbyPlacemarkBatches(
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+      );
+      final lookupPairs = await _collectLookupPairsAroundPosition(
+        seedPlacemarks: placemarks,
+        sampledPlacemarkBatches: sampledPlacemarkBatches,
+      );
 
       if (lookupPairs.isNotEmpty) {
         try {
@@ -561,6 +850,10 @@ class _StartScreenState extends State<StartScreen> {
 
             for (final candidate in pairCandidates) {
               final key = _candidateIdentityKey(candidate);
+              final existingRank = candidateNearestRank[key];
+              if (existingRank == null || index < existingRank) {
+                candidateNearestRank[key] = index;
+              }
               if (seenCandidateKeys.add(key)) {
                 candidateBagData.add(candidate);
               }
@@ -572,14 +865,10 @@ class _StartScreenState extends State<StartScreen> {
           }
 
           if (fetchId != _activeFetchId || !mounted) return;
-          _bagDebugInfo =
-              'BAG kandidaten: ${candidateBagData.length} via ${lookupPairs.length} GPS-inputs';
           if (candidateBagData.length == 1) {
             selectedBagData = candidateBagData.first;
           }
         } catch (error) {
-          _bagDebugInfo =
-              'BAG fout: postcode=$postcode, huisnummer=$huisnummer, error=$error';
           selectedBagData = BagData(
             adres: placemark?.thoroughfare,
             huisnummer: huisnummer,
@@ -589,7 +878,7 @@ class _StartScreenState extends State<StartScreen> {
                 placemark?.administrativeArea ??
                 'Unknown',
           );
-          candidateBagData = <BagData>[selectedBagData!];
+          candidateBagData = <BagData>[selectedBagData];
         }
       } else {
         selectedBagData = BagData(
@@ -603,18 +892,222 @@ class _StartScreenState extends State<StartScreen> {
               placemark?.administrativeArea ??
               'Locatie',
         );
-        candidateBagData = <BagData>[selectedBagData!];
+        candidateBagData = <BagData>[selectedBagData];
+      }
+
+      if (candidateBagData.length < _targetBagCandidateCount) {
+        final straat = (placemark?.thoroughfare ?? placemark?.street ?? '').trim();
+        final plaats = (placemark?.locality ??
+                placemark?.subAdministrativeArea ??
+                placemark?.administrativeArea ??
+                '')
+            .trim();
+        final queryCandidates = <String>{
+          [straat, plaats].where((part) => part.isNotEmpty).join(' ').trim(),
+          [postcode, huisnummer].where((part) => part.isNotEmpty).join(' ').trim(),
+          [postcode, plaats].where((part) => part.isNotEmpty).join(' ').trim(),
+          _manualAddressController.text.trim(),
+        }.where((item) => item.isNotEmpty).toSet();
+
+        final seenKeys = candidateBagData
+            .map(_candidateIdentityKey)
+            .toSet();
+        var qAdded = 0;
+
+        for (var index = 0; index < queryCandidates.length; index++) {
+          final query = queryCandidates.elementAt(index);
+          List<BagData> qResults = const <BagData>[];
+          try {
+            qResults = await BagService.lookupCandidatesByQuery(
+              query,
+              _bagApiKey,
+            ).timeout(const Duration(seconds: 10));
+          } catch (_) {
+            qResults = const <BagData>[];
+          }
+
+          for (final candidate in qResults) {
+            final key = _candidateIdentityKey(candidate);
+            if (!seenKeys.add(key)) {
+              continue;
+            }
+            candidateBagData.add(candidate);
+            candidateNearestRank[key] = candidateNearestRank[key] ?? (200 + index);
+            qAdded++;
+          }
+
+          if (candidateBagData.length >= 8) {
+            break;
+          }
+        }
+
+        if (qAdded > 0) {
+        }
+      }
+
+      if (candidateBagData.length < _targetBagCandidateCount) {
+        final nearbyPlacemarkCandidates = await _collectNearbyPlacemarkCandidates(
+          seedPlacemarks: placemarks,
+          sampledPlacemarkBatches: sampledPlacemarkBatches,
+        );
+        if (fetchId != _activeFetchId || !mounted) return;
+
+        final seenKeys = candidateBagData.map(_candidateIdentityKey).toSet();
+
+        for (final nearbyEntry in nearbyPlacemarkCandidates) {
+          final candidate = nearbyEntry.key;
+          final key = _candidateIdentityKey(candidate);
+          if (!seenKeys.add(key)) {
+            continue;
+          }
+
+          candidateBagData.add(candidate);
+          candidateNearestRank[key] = candidateNearestRank[key] ?? (1000 + nearbyEntry.value);
+        }
+
+
+        if (selectedBagData == null && candidateBagData.isNotEmpty) {
+          selectedBagData = candidateBagData.first;
+        }
+      }
+
+      final inputMatchedCandidates = candidateBagData
+          .where(_matchesCurrentInput)
+          .toList(growable: false);
+      final inputMatchedKeys = inputMatchedCandidates
+          .map(_candidateIdentityKey)
+          .toSet();
+      if (inputMatchedCandidates.isNotEmpty) {
+        if (selectedBagData == null ||
+            !inputMatchedKeys.contains(_candidateIdentityKey(selectedBagData))) {
+          selectedBagData = inputMatchedCandidates.first;
+        }
+      }
+
+      final distanceByKey = <String, double>{};
+      final withDistance = <BagData>[];
+      final withoutDistance = <BagData>[];
+      for (final candidate in candidateBagData) {
+        final distance = _distanceToCandidateMeters(
+          candidate: candidate,
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+        );
+        if (distance == null) {
+          withoutDistance.add(candidate);
+          continue;
+        }
+        withDistance.add(candidate);
+        distanceByKey[_candidateIdentityKey(candidate)] = distance;
+      }
+
+      final withinRadius = withDistance
+          .where((candidate) {
+            final key = _candidateIdentityKey(candidate);
+            final distance = distanceByKey[key];
+            return distance != null && distance <= _gpsBagRadiusMeters;
+          })
+          .toList(growable: false);
+
+      List<BagData> sortByDistance(List<BagData> items) {
+        final sorted = List<BagData>.from(items);
+        sorted.sort((left, right) {
+          final leftDistance = distanceByKey[_candidateIdentityKey(left)] ?? double.infinity;
+          final rightDistance = distanceByKey[_candidateIdentityKey(right)] ?? double.infinity;
+          return leftDistance.compareTo(rightDistance);
+        });
+        return sorted;
+      }
+
+      if (withDistance.isNotEmpty) {
+        if (withinRadius.isNotEmpty) {
+          final sortedWithinRadius = sortByDistance(withinRadius);
+          final sortedAll = sortByDistance(withDistance);
+          final selectedKeys =
+              sortedWithinRadius.map(_candidateIdentityKey).toSet();
+          final supplementalNearby = sortedAll
+              .where((candidate) =>
+                  !selectedKeys.contains(_candidateIdentityKey(candidate)))
+              .take(5)
+              .toList(growable: false);
+
+          final supplementalUnknownDistance = withoutDistance
+            .where((candidate) =>
+              !selectedKeys.contains(_candidateIdentityKey(candidate)))
+            .take(8)
+            .toList(growable: false);
+
+          candidateBagData = <BagData>[
+            ...sortedWithinRadius,
+            ...supplementalNearby,
+          ...supplementalUnknownDistance,
+          ];
+          if (selectedBagData == null ||
+            !candidateBagData
+              .map(_candidateIdentityKey)
+              .contains(_candidateIdentityKey(selectedBagData))) {
+          selectedBagData = sortedWithinRadius.first;
+          }
+        } else {
+          final nearestCandidates = sortByDistance(withDistance)
+              .take(5)
+              .toList(growable: false);
+
+          final supplementalUnknownDistance = withoutDistance
+            .take(8)
+            .toList(growable: false);
+
+          candidateBagData = <BagData>[
+          ...nearestCandidates,
+          ...supplementalUnknownDistance,
+          ];
+          if (selectedBagData == null ||
+            !candidateBagData
+              .map(_candidateIdentityKey)
+              .contains(_candidateIdentityKey(selectedBagData))) {
+          selectedBagData = nearestCandidates.isNotEmpty
+            ? nearestCandidates.first
+            : (supplementalUnknownDistance.isNotEmpty
+              ? supplementalUnknownDistance.first
+              : null);
+          }
+        }
+      } else {
       }
 
       setState(() {
         candidateBagData.sort(
-          (left, right) => _candidateSortKey(left).compareTo(_candidateSortKey(right)),
+          (left, right) {
+            final leftIsInputMatch =
+                inputMatchedKeys.contains(_candidateIdentityKey(left));
+            final rightIsInputMatch =
+                inputMatchedKeys.contains(_candidateIdentityKey(right));
+            if (leftIsInputMatch != rightIsInputMatch) {
+              return leftIsInputMatch ? -1 : 1;
+            }
+
+            final leftDistance = distanceByKey[_candidateIdentityKey(left)] ?? double.infinity;
+            final rightDistance = distanceByKey[_candidateIdentityKey(right)] ?? double.infinity;
+            if (leftDistance != rightDistance) {
+              return leftDistance.compareTo(rightDistance);
+            }
+
+            final leftKey = _candidateIdentityKey(left);
+            final rightKey = _candidateIdentityKey(right);
+            final leftRank = candidateNearestRank[leftKey] ?? 1 << 20;
+            final rightRank = candidateNearestRank[rightKey] ?? 1 << 20;
+            if (leftRank != rightRank) {
+              return leftRank.compareTo(rightRank);
+            }
+            return _candidateSortKey(left).compareTo(_candidateSortKey(right));
+          },
         );
         final gpsKey = _formatBagCandidate(gpsAddressCandidate).toLowerCase();
         final containsGpsCandidate = candidateBagData.any(
           (item) => _formatBagCandidate(item).toLowerCase() == gpsKey,
         );
-        if (!containsGpsCandidate) {
+        final radiusFilterApplied = withDistance.isNotEmpty;
+        if (!radiusFilterApplied && !containsGpsCandidate) {
           candidateBagData = <BagData>[gpsAddressCandidate, ...candidateBagData];
         }
         _bagCandidates = candidateBagData;
@@ -622,9 +1115,7 @@ class _StartScreenState extends State<StartScreen> {
       });
 
       if (selectedBagData != null) {
-        final savedCount = await _loadPhotoCountForAddress(
-          selectedBagData.getFolderName(),
-        );
+        final savedCount = await _loadPhotoCountForAddress(selectedBagData);
         if (!mounted || fetchId != _activeFetchId) return;
         setState(() {
           _lastPhotoCount = savedCount;
@@ -648,7 +1139,6 @@ class _StartScreenState extends State<StartScreen> {
       }
     } catch (e) {
       if (!mounted || fetchId != _activeFetchId) return;
-      _bagDebugInfo = 'Fout bij ophalen adres: $e';
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Fout bij ophalen adres')),
       );
@@ -661,7 +1151,7 @@ class _StartScreenState extends State<StartScreen> {
   /// Navigate to photo selection screen with the fetched address.
   Future<void> _proceedToPhotos() async {
     if (_bagData == null) return;
-    final currentAddress = _bagData!.getFolderName();
+    final currentAddress = _bagData!;
 
     final result = await Navigator.of(context).push<int>(
       MaterialPageRoute(
@@ -677,7 +1167,7 @@ class _StartScreenState extends State<StartScreen> {
       _lastPhotoCount = result;
     });
     await _savePhotoCountForAddress(
-      addressFolderName: currentAddress,
+      bagData: currentAddress,
       count: result,
     );
   }
@@ -706,10 +1196,37 @@ class _StartScreenState extends State<StartScreen> {
     );
   }
 
+  Future<void> _openBeslisschemas() async {
+    if (_bagData == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Haal eerst een adres op voor het dossier.')),
+      );
+      return;
+    }
+
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => BeslisschemasScreen(
+          bagData: _bagData!,
+          dossierName: _bagData!.getFolderName(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('PM Realestate Data & Visuals')),
+      appBar: AppBar(
+        title: const Text('PM Realestate Data & Visuals'),
+        actions: [
+          IconButton(
+            tooltip: 'Instellingen',
+            icon: const Icon(Icons.settings),
+            onPressed: _openInstellingen,
+          ),
+        ],
+      ),
       body: Center(
         child: SingleChildScrollView(
           child: Column(
@@ -735,6 +1252,7 @@ class _StartScreenState extends State<StartScreen> {
                   ],
                 ),
               ),
+              const SizedBox(height: 12),
               if (_bagData != null)
                 Padding(
                   padding: const EdgeInsets.all(20),
@@ -753,16 +1271,6 @@ class _StartScreenState extends State<StartScreen> {
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.headlineSmall,
                       ),
-                      const SizedBox(height: 8),
-                      // Bouwjaar en gebruiksdoel worden niet getoond bij handmatige invoer
-                      if (_bagDebugInfo.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          _bagDebugInfo,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
                     ],
                   ),
                 )
@@ -856,11 +1364,26 @@ class _StartScreenState extends State<StartScreen> {
                             itemCount: _bagCandidates.length,
                             itemBuilder: (context, index) {
                               final candidate = _bagCandidates[index];
-                              final isSelected =
-                                  _bagData?.getFolderName() == candidate.getFolderName();
+                              final isSelected = _isSelectedBagCandidate(candidate);
+                              final candidateLevel =
+                                  _candidateStatusLevel(candidate);
+                              final candidateColor =
+                                  _lookupStatusColor(candidateLevel);
                               return ListTile(
                                 dense: true,
+                                leading: Icon(
+                                  Icons.circle,
+                                  size: 12,
+                                  color: candidateColor,
+                                ),
                                 title: Text(_formatBagCandidate(candidate)),
+                                subtitle: Text(
+                                  _candidateStatusText(candidate),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(color: candidateColor),
+                                ),
                                 trailing: isSelected
                                     ? Icon(
                                         Icons.check_circle,
@@ -905,6 +1428,16 @@ class _StartScreenState extends State<StartScreen> {
                 icon: const Icon(Icons.assignment_turned_in),
                 label: const Text('Opname afsluiten'),
                 onPressed: _isLoading ? null : _openOpnameAfsluiten,
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.account_tree_outlined),
+                label: const Text('Beslisschemas en formulieren'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF006FAF),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: _isLoading ? null : _openBeslisschemas,
               ),
               const SizedBox(height: 12),
               ElevatedButton.icon(

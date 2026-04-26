@@ -153,6 +153,12 @@ class BagData {
   /// Use case from BAG response.
   final String? gebruiksdoel;
 
+  /// Latitude in WGS84 if available from BAG payload.
+  final double? latitude;
+
+  /// Longitude in WGS84 if available from BAG payload.
+  final double? longitude;
+
   /// Create BAG data model.
   BagData({
     this.adres,
@@ -166,6 +172,8 @@ class BagData {
     this.bagPandId,
     this.oorspronkelijkBouwjaar,
     this.gebruiksdoel,
+    this.latitude,
+    this.longitude,
   });
 
   /// Create from JSON response.
@@ -190,7 +198,25 @@ class BagData {
         json['huisnummertoevoeging']?.toString() ??
         json['huisletter']?.toString();
 
-    final bagAdresId = json['identificatie']?.toString();
+    final selfHrefId = (() {
+      final links = json['_links'];
+      if (links is! Map<String, dynamic>) {
+        return null;
+      }
+      final selfLink = links['self'];
+      if (selfLink is Map<String, dynamic>) {
+        return _extractPandIdFromHref(selfLink['href']?.toString());
+      }
+      if (selfLink is String) {
+        return _extractPandIdFromHref(selfLink);
+      }
+      return null;
+    })();
+
+    final bagAdresId =
+        json['identificatie']?.toString() ??
+        json['nummeraanduidingIdentificatie']?.toString() ??
+        selfHrefId;
     final adresseerbaarObjectId =
       json['adresseerbaarObjectIdentificatie']?.toString() ??
       json['adresseerbaarobjectIdentificatie']?.toString() ??
@@ -212,6 +238,16 @@ class BagData {
     String? bagPandId =
         json['bagPandId']?.toString() ??
         json['pandId']?.toString();
+
+    final pandIdentificaties = json['pandIdentificaties'];
+    if ((bagPandId == null || bagPandId.isEmpty) &&
+        pandIdentificaties is List &&
+        pandIdentificaties.isNotEmpty) {
+      final firstPandId = pandIdentificaties.first?.toString();
+      if (firstPandId != null && firstPandId.trim().isNotEmpty) {
+        bagPandId = firstPandId.trim();
+      }
+    }
 
     final panden = json['panden'];
     if ((bagPandId == null || bagPandId.isEmpty) && panden is List && panden.isNotEmpty) {
@@ -239,6 +275,25 @@ class BagData {
     final oorspronkelijkBouwjaar =
         _findFirstValueByKeys(json, const ['oorspronkelijkBouwjaar', 'bouwjaar']);
 
+    double? latitude;
+    double? longitude;
+
+    final wgsPoint = BagService._extractWgs84Point(json);
+    if (wgsPoint != null) {
+      latitude = wgsPoint['lat'];
+      longitude = wgsPoint['lon'];
+    } else {
+      final rdPoint = BagService._extractRdPoint(json);
+      if (rdPoint != null) {
+        final converted = BagService._rdToWgs84(
+          x: rdPoint['x']!,
+          y: rdPoint['y']!,
+        );
+        latitude = converted['lat'];
+        longitude = converted['lon'];
+      }
+    }
+
     return BagData(
       adres: adres,
       huisnummer: huisnummer,
@@ -251,6 +306,8 @@ class BagData {
       bagPandId: bagPandId,
       oorspronkelijkBouwjaar: oorspronkelijkBouwjaar,
       gebruiksdoel: json['gebruiksdoel']?.toString(),
+      latitude: latitude,
+      longitude: longitude,
     );
   }
 
@@ -266,6 +323,8 @@ class BagData {
     String? bagPandId,
     String? oorspronkelijkBouwjaar,
     String? gebruiksdoel,
+    double? latitude,
+    double? longitude,
   }) {
     return BagData(
       adres: adres ?? this.adres,
@@ -280,6 +339,8 @@ class BagData {
       bagPandId: bagPandId ?? this.bagPandId,
       oorspronkelijkBouwjaar: oorspronkelijkBouwjaar ?? this.oorspronkelijkBouwjaar,
       gebruiksdoel: gebruiksdoel ?? this.gebruiksdoel,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
     );
   }
 
@@ -289,7 +350,8 @@ class BagData {
 
     final cleanAdres = (adres ?? '').trim();
     final cleanHuisnummer = (huisnummer ?? '').trim();
-    final adresDeel = [cleanAdres, cleanHuisnummer]
+    final cleanToevoeging = (huisletterHuisnummertoevoeging ?? '').trim();
+    final adresDeel = [cleanAdres, cleanHuisnummer, cleanToevoeging]
         .where((value) => value.isNotEmpty && value.toLowerCase() != 'unknown')
         .join(' ')
         .trim();
@@ -312,6 +374,38 @@ class BagData {
     final value = parts.isEmpty ? 'Onbekend adres' : parts.join(' ');
     return value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
   }
+
+  String _normalizedPostcodeForFiles() {
+    final value = postcode.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+    if (value.isEmpty || value == '-' || value == 'UNKNOWN') {
+      return 'ONBEKEND';
+    }
+    return value;
+  }
+
+  String _normalizedHouseNumberForFiles() {
+    final number = (huisnummer ?? '').trim();
+    final addition = (huisletterHuisnummertoevoeging ?? '').trim();
+    final joined = '$number$addition'
+        .replaceAll(RegExp(r'\s+'), '')
+        .toUpperCase();
+    if (joined.isEmpty || joined == '-' || joined == 'UNKNOWN') {
+      return '0';
+    }
+    return joined;
+  }
+
+  /// Key for per-address photo counters (postcode + huisnummer[+toevoeging]).
+  String getPhotoCounterScope() {
+    final postcodePart = _normalizedPostcodeForFiles();
+    final housePart = _normalizedHouseNumberForFiles();
+    return '${postcodePart}_$housePart';
+  }
+
+  /// Filename prefix for photos.
+  String getPhotoFilePrefix() {
+    return getPhotoCounterScope();
+  }
 }
 
 /// Simple BAG client helpers.
@@ -325,7 +419,13 @@ class BagService {
 
   /// If true, send the API key using the `api_key` query parameter.
   static bool useQueryApiKey = true;
-  static const int _candidateHouseNumberRadius = 50;
+
+  static String _normalizeHuisnummertoevoeging(String value) {
+    return value
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll('-', '')
+        .toLowerCase();
+  }
 
   static Future<BagData> resolveBagDataForExport({
     required BagData bagData,
@@ -1371,11 +1471,70 @@ class BagService {
     return null;
   }
 
+  static Map<String, double>? _extractWgs84Point(dynamic source) {
+    if (source is List) {
+      for (final item in source) {
+        final found = _extractWgs84Point(item);
+        if (found != null) {
+          return found;
+        }
+      }
+      return null;
+    }
+
+    if (source is Map<String, dynamic>) {
+      final lat = _toDouble(source['lat']) ?? _toDouble(source['latitude']);
+      final lon = _toDouble(source['lon']) ?? _toDouble(source['lng']) ?? _toDouble(source['longitude']);
+      if (_looksLikeWgs84(lat, lon)) {
+        return {'lat': lat!, 'lon': lon!};
+      }
+
+      final point = source['point'];
+      if (point is Map<String, dynamic>) {
+        final pLat = _toDouble(point['lat']) ?? _toDouble(point['latitude']) ?? _toDouble(point['y']);
+        final pLon = _toDouble(point['lon']) ?? _toDouble(point['lng']) ?? _toDouble(point['longitude']) ?? _toDouble(point['x']);
+        if (_looksLikeWgs84(pLat, pLon)) {
+          return {'lat': pLat!, 'lon': pLon!};
+        }
+      }
+
+      final coordinates = source['coordinates'];
+      if (coordinates is List && coordinates.length >= 2) {
+        final first = _toDouble(coordinates[0]);
+        final second = _toDouble(coordinates[1]);
+
+        // GeoJSON uses [lon, lat]. Some payloads use [lat, lon].
+        if (_looksLikeWgs84(second, first)) {
+          return {'lat': second!, 'lon': first!};
+        }
+        if (_looksLikeWgs84(first, second)) {
+          return {'lat': first!, 'lon': second!};
+        }
+      }
+
+      for (final value in source.values) {
+        final found = _extractWgs84Point(value);
+        if (found != null) {
+          return found;
+        }
+      }
+    }
+
+    return null;
+  }
+
   static bool _looksLikeRd(double? x, double? y) {
     if (x == null || y == null) {
       return false;
     }
     return x >= 0 && x <= 300000 && y >= 300000 && y <= 650000;
+  }
+
+  static bool _looksLikeWgs84(double? lat, double? lon) {
+    if (lat == null || lon == null) {
+      return false;
+    }
+    return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
   }
 
   static double? _toDouble(dynamic value) {
@@ -1511,6 +1670,63 @@ class BagService {
   ///
   /// Geeft meerdere kandidaten terug zodat de gebruiker handmatig kan kiezen,
   /// bijvoorbeeld bij appartementen waar GPS onnauwkeurig is.
+  static Future<List<BagData>> lookupCandidatesByAddressExact(
+    String postcode,
+    String huisnummer,
+    String apiKey, {
+    String? huisnummertoevoeging,
+  }) async {
+    final normalizedPostcode = postcode.replaceAll(' ', '').toUpperCase();
+    final normalizedHuisnummer = huisnummer.trim();
+    if (normalizedPostcode.isEmpty || normalizedHuisnummer.isEmpty) {
+      throw Exception('Postcode of huisnummer ontbreekt voor BAG lookup');
+    }
+
+    final rawAddresses = await _requestAddressRecords(
+      postcode: normalizedPostcode,
+      huisnummer: normalizedHuisnummer,
+      apiKey: apiKey,
+      exacteMatch: true,
+    );
+
+    final results = <BagData>[];
+    final seenKeys = <String>{};
+    for (final rawAddress in rawAddresses) {
+      final bagData = BagData.fromJson(rawAddress);
+      final key = [
+        (bagData.bagAdresId ?? '').trim(),
+        (bagData.bagIdentificatie ?? '').trim(),
+        (bagData.adres ?? '').trim().toLowerCase(),
+        (bagData.huisnummer ?? '').trim().toLowerCase(),
+        (bagData.huisletterHuisnummertoevoeging ?? '').trim().toLowerCase(),
+        bagData.postcode.trim().toUpperCase(),
+        bagData.plaatsnaam.trim().toLowerCase(),
+      ].join('|');
+      if (seenKeys.add(key)) {
+        results.add(bagData);
+      }
+    }
+
+    if (results.isEmpty) {
+      return const <BagData>[];
+    }
+
+    final normalizedToevoeging =
+        _normalizeHuisnummertoevoeging(huisnummertoevoeging ?? '');
+    if (normalizedToevoeging.isEmpty) {
+      return results;
+    }
+
+    final filtered = results.where((item) {
+      final itemToevoeging = _normalizeHuisnummertoevoeging(
+        item.huisletterHuisnummertoevoeging ?? '',
+      );
+      return itemToevoeging == normalizedToevoeging;
+    }).toList(growable: false);
+
+    return filtered.isNotEmpty ? filtered : results;
+  }
+
   static Future<List<BagData>> lookupCandidatesByAddress(
     String postcode,
     String huisnummer,
@@ -1522,22 +1738,35 @@ class BagService {
       throw Exception('Postcode of huisnummer ontbreekt voor BAG lookup');
     }
 
-    final candidateHouseNumbers = <String>{normalizedHuisnummer};
+    // Keep lookup fast and deterministic: exact house number first,
+    // then only a small numeric fallback range around it.
+    final candidateHouseNumbers = <String>[];
+    final seenHouseNumbers = <String>{};
+
+    void addCandidate(String value) {
+      final v = value.trim();
+      if (v.isEmpty) {
+        return;
+      }
+      if (seenHouseNumbers.add(v)) {
+        candidateHouseNumbers.add(v);
+      }
+    }
+
+    addCandidate(normalizedHuisnummer);
     final numericPart = RegExp(r'^\d+').stringMatch(normalizedHuisnummer) ?? '';
     final parsedNumeric = int.tryParse(numericPart);
     if (parsedNumeric != null) {
-      candidateHouseNumbers.add(parsedNumeric.toString());
-      for (
-        var offset = -_candidateHouseNumberRadius;
-        offset <= _candidateHouseNumberRadius;
-        offset++
-      ) {
-        if (offset == 0) {
-          continue;
+      addCandidate(parsedNumeric.toString());
+      const fallbackRadius = 3;
+      for (var offset = 1; offset <= fallbackRadius; offset++) {
+        final lower = parsedNumeric - offset;
+        final upper = parsedNumeric + offset;
+        if (lower > 0) {
+          addCandidate(lower.toString());
         }
-        final candidate = parsedNumeric + offset;
-        if (candidate > 0) {
-          candidateHouseNumbers.add(candidate.toString());
+        if (upper > 0) {
+          addCandidate(upper.toString());
         }
       }
     }
@@ -1568,6 +1797,11 @@ class BagService {
           results.add(bagData);
         }
       }
+
+      // Exact result is usually sufficient (e.g. apartment additions).
+      if (candidateHuisnummer == normalizedHuisnummer && results.isNotEmpty) {
+        return results;
+      }
     }
 
     if (results.isNotEmpty) {
@@ -1583,6 +1817,46 @@ class BagService {
     ];
   }
 
+  /// Lookup mogelijke BAG-adressen op basis van vrije zoektekst.
+  ///
+  /// Gebruikt het `q`-queryveld van de BAG API en retourneert meerdere
+  /// kandidaten (bijv. straat + plaats voor appartementencomplexen).
+  static Future<List<BagData>> lookupCandidatesByQuery(
+    String queryText,
+    String apiKey,
+  ) async {
+    final normalizedQuery = queryText.trim();
+    if (normalizedQuery.isEmpty) {
+      return const <BagData>[];
+    }
+
+    final rawAddresses = await _requestAddressRecordsByQuery(
+      queryText: normalizedQuery,
+      apiKey: apiKey,
+    );
+
+    final results = <BagData>[];
+    final seenKeys = <String>{};
+
+    for (final rawAddress in rawAddresses) {
+      final bagData = BagData.fromJson(rawAddress);
+      final key = [
+        (bagData.bagAdresId ?? '').trim(),
+        (bagData.bagIdentificatie ?? '').trim(),
+        (bagData.adres ?? '').trim().toLowerCase(),
+        (bagData.huisnummer ?? '').trim().toLowerCase(),
+        (bagData.huisletterHuisnummertoevoeging ?? '').trim().toLowerCase(),
+        bagData.postcode.trim().toUpperCase(),
+        bagData.plaatsnaam.trim().toLowerCase(),
+      ].join('|');
+      if (seenKeys.add(key)) {
+        results.add(bagData);
+      }
+    }
+
+    return results;
+  }
+
   static Future<List<Map<String, dynamic>>> _requestAddressRecords({
     required String postcode,
     required String huisnummer,
@@ -1593,6 +1867,68 @@ class BagService {
       'postcode': postcode,
       'huisnummer': huisnummer,
       'exacteMatch': exacteMatch ? 'true' : 'false',
+    };
+    if (useQueryApiKey) {
+      query['api_key'] = apiKey;
+    }
+
+    final uri = Uri.parse('$baseUrl/adressen').replace(queryParameters: query);
+    final headers = <String, String>{'Accept': 'application/hal+json'};
+    if (!useQueryApiKey) {
+      headers['Authorization'] = 'Bearer $apiKey';
+    }
+    headers['X-Api-Key'] = apiKey;
+
+    final resp = await http.get(uri, headers: headers);
+    if (resp.statusCode != 200) {
+      throw Exception('BAG request failed: ${resp.statusCode}');
+    }
+
+    final decoded = json.decode(resp.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('Onverwachte BAG response');
+    }
+
+    final extracted = <Map<String, dynamic>>[];
+
+    final embedded = decoded['_embedded'];
+    if (embedded is Map<String, dynamic>) {
+      final adressen = embedded['adressen'];
+      if (adressen is List) {
+        for (final item in adressen) {
+          if (item is Map<String, dynamic>) {
+            extracted.add(item);
+          }
+        }
+      }
+    }
+
+    final adressenTopLevel = decoded['adressen'];
+    if (adressenTopLevel is List) {
+      for (final item in adressenTopLevel) {
+        if (item is Map<String, dynamic>) {
+          extracted.add(item);
+        }
+      }
+    }
+
+    if (extracted.isNotEmpty) {
+      return extracted;
+    }
+
+    if (decoded.containsKey('postcode') || decoded.containsKey('identificatie')) {
+      return [decoded];
+    }
+
+    return const [];
+  }
+
+  static Future<List<Map<String, dynamic>>> _requestAddressRecordsByQuery({
+    required String queryText,
+    required String apiKey,
+  }) async {
+    final query = <String, String>{
+      'q': queryText,
     };
     if (useQueryApiKey) {
       query['api_key'] = apiKey;
@@ -1973,27 +2309,27 @@ class BagService {
 
     final attempts = <Map<String, dynamic>>[
       {
-        'uri': base.replace(queryParameters: {'api_key': apiKey}),
-        'headers': const {
+        'uri': base,
+        'headers': {
           'Accept': 'application/hal+json, application/json',
+          'Accept-Crs': 'epsg:28992',
+          'X-Api-Key': apiKey,
         },
       },
       {
-        'uri': base.replace(queryParameters: {'api_key': apiKey, 'expand': 'true'}),
-        'headers': const {
+        'uri': base,
+        'headers': {
           'Accept': 'application/hal+json, application/json',
-        },
-      },
-      {
-        'uri': base.replace(queryParameters: {'apikey': apiKey}),
-        'headers': const {
-          'Accept': 'application/hal+json, application/json',
+          'Accept-Crs': 'epsg:28992',
+          'Authorization': 'Bearer $apiKey',
+          'X-Api-Key': apiKey,
         },
       },
       {
         'uri': baseExpand,
         'headers': {
           'Accept': 'application/hal+json, application/json',
+          'Accept-Crs': 'epsg:28992',
           'X-Api-Key': apiKey,
         },
       },
@@ -2009,14 +2345,6 @@ class BagService {
         'headers': {
           'Accept': 'application/hal+json, application/json',
           'x-api-key': apiKey,
-        },
-      },
-      {
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'Accept-Crs': 'epsg:28992',
-          'X-Api-Key': apiKey,
         },
       },
       {
@@ -2043,12 +2371,21 @@ class BagService {
         },
       },
       {
-        'uri': base,
-        'headers': {
+        'uri': base.replace(queryParameters: {'api_key': apiKey}),
+        'headers': const {
           'Accept': 'application/hal+json, application/json',
-          'Accept-Crs': 'epsg:28992',
-          'Authorization': 'Bearer $apiKey',
-          'X-Api-Key': apiKey,
+        },
+      },
+      {
+        'uri': base.replace(queryParameters: {'api_key': apiKey, 'expand': 'true'}),
+        'headers': const {
+          'Accept': 'application/hal+json, application/json',
+        },
+      },
+      {
+        'uri': base.replace(queryParameters: {'apikey': apiKey}),
+        'headers': const {
+          'Accept': 'application/hal+json, application/json',
         },
       },
     ];
@@ -2076,6 +2413,25 @@ class BagService {
       queryParameters: {'expand': 'true'},
     );
     final attempts = <Map<String, dynamic>>[
+      {
+        'label': 'header:X-Api-Key+crs',
+        'uri': base,
+        'headers': {
+          'Accept': 'application/hal+json, application/json',
+          'Accept-Crs': 'epsg:28992',
+          'X-Api-Key': apiKey,
+        },
+      },
+      {
+        'label': 'bearer+header+crs',
+        'uri': base,
+        'headers': {
+          'Accept': 'application/hal+json, application/json',
+          'Accept-Crs': 'epsg:28992',
+          'Authorization': 'Bearer $apiKey',
+          'X-Api-Key': apiKey,
+        },
+      },
       {
         'label': 'query:api_key',
         'uri': base.replace(queryParameters: {'api_key': apiKey}),
@@ -2122,15 +2478,6 @@ class BagService {
         },
       },
       {
-        'label': 'header:X-Api-Key+crs',
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'Accept-Crs': 'epsg:28992',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
         'label': 'header:X-Api-Key+json+crs',
         'uri': base,
         'headers': {
@@ -2152,16 +2499,6 @@ class BagService {
         'uri': base,
         'headers': {
           'Accept': 'application/hal+json, application/json',
-          'Authorization': 'Bearer $apiKey',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'label': 'bearer+header+crs',
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'Accept-Crs': 'epsg:28992',
           'Authorization': 'Bearer $apiKey',
           'X-Api-Key': apiKey,
         },

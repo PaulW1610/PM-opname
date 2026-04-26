@@ -26,6 +26,17 @@
 			"group": "test"
 		},
 		{
+			"label": "iOS soak stability check (30m)",
+			"type": "shell",
+			"command": "./tool/soak_stability_check.sh",
+			"args": [
+				"1800"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
 			"label": "Run Flutter tests",
 			"type": "shell",
 			"command": "flutter test",
@@ -84,6 +95,22 @@
 				"$dart"
 			],
 			"group": "run"
+		},
+		{
+			"label": "iOS build TestFlight IPA",
+			"type": "shell",
+			"command": "./tool/build_testflight.sh",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "iOS build+upload TestFlight",
+			"type": "shell",
+			"command": "./tool/build_testflight.sh --upload",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }

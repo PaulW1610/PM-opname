@@ -12,6 +12,7 @@ class XmlExportService {
     required String postcode,
     required String plaatsnaam,
     required String bouwjaar,
+    required String gebouwhoogte,
     required String bagId,
     required String bagPandId,
   }) async {
@@ -38,8 +39,7 @@ class XmlExportService {
     final cleanPostcode = postcode.trim();
     final cleanPlaatsnaam = plaatsnaam.trim();
     final cleanBouwjaar = bouwjaar.trim();
-    final cleanBagId = bagId.trim();
-    final cleanBagPandId = bagPandId.trim();
+    final cleanGebouwhoogte = gebouwhoogte.trim();
     final naamObject = [cleanStraat, cleanHuisnummer, cleanPostcode]
       .where((part) => part.isNotEmpty)
       .join(' ')
@@ -106,6 +106,14 @@ class XmlExportService {
       }
     }
 
+    if (cleanGebouwhoogte.isNotEmpty) {
+      xml = _replaceObjectClassificatieTagValue(
+        xml,
+        'Gebouwhoogte',
+        cleanGebouwhoogte,
+      );
+    }
+
     final safeDossierName = _sanitizeName(dossierName);
     final baseDir = await getApplicationDocumentsDirectory();
     final dossierDir = Directory('${baseDir.path}/dossiers/$safeDossierName');
@@ -123,6 +131,30 @@ class XmlExportService {
   ) {
     final sectionRegex = RegExp(
         r'(<Adresgegevens[^>]*>)([\s\S]*?)(</Adresgegevens>)',
+      caseSensitive: false,
+    );
+    final sectionMatch = sectionRegex.firstMatch(xml);
+    if (sectionMatch == null) {
+      return xml;
+    }
+
+    final sectionOpen = sectionMatch.group(1)!;
+    final sectionBody = sectionMatch.group(2)!;
+    final sectionClose = sectionMatch.group(3)!;
+
+    final replacedBody = _replaceTagValueInSection(sectionBody, tagName, value);
+    final replacedSection = '$sectionOpen$replacedBody$sectionClose';
+
+    return xml.replaceRange(sectionMatch.start, sectionMatch.end, replacedSection);
+  }
+
+  static String _replaceObjectClassificatieTagValue(
+    String xml,
+    String tagName,
+    String value,
+  ) {
+    final sectionRegex = RegExp(
+      r'(<ObjectClassificatie[^>]*>)([\s\S]*?)(</ObjectClassificatie>)',
       caseSensitive: false,
     );
     final sectionMatch = sectionRegex.firstMatch(xml);
