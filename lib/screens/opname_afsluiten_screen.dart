@@ -6,6 +6,7 @@ import 'package:flutter_email_sender/flutter_email_sender.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../config/app_secrets.dart';
 import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
 import '../services/dropbox_service.dart';
@@ -32,8 +33,7 @@ class OpnameAfsluitenScreen extends StatefulWidget {
 
 class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
   static const String _bagPdfBuildVersion = '2026-02-27-v3';
-  static const String _bagApiKey =
-      String.fromEnvironment('BAG_API_KEY', defaultValue: 'l79175a82fbd564ef8b7ac64e4b7857001');
+  static const String _bagApiKey = AppSecrets.bagApiKey;
   static const List<String> _vloerOpties = ['Hout', 'Beton'];
   static const List<String> _ventilatieOpties = [
     'A - Natuurlijk (toevoer + afvoer)',

@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/bag_service.dart';
-import 'wonen_screen.dart';
 import 'wonen2_screen.dart';
-import 'utiliteit_screen.dart';
-import 'wws_punten_screen.dart';
 
 /// Screen to select photo category (Wonen or Utiliteit).
 ///
@@ -155,46 +152,10 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
     );
   }
 
-  /// Request camera permission and open Wonen screen.
-  Future<void> _openWonen(BuildContext context) async {
-    await _requestCameraAndOpen(
-      (nextPhotoNumber, onPhotoSaved) => WonenScreen(
-        bagData: widget.bagData,
-        albumName: _currentAlbumName(),
-        initialPhotoNumber: nextPhotoNumber,
-        onPhotoSaved: onPhotoSaved,
-      ),
-    );
-  }
-
   /// Request camera permission and open Wonen 2 screen.
   Future<void> _openWonen2(BuildContext context) async {
     await _requestCameraAndOpen(
       (nextPhotoNumber, onPhotoSaved) => Wonen2Screen(
-        bagData: widget.bagData,
-        albumName: _currentAlbumName(),
-        initialPhotoNumber: nextPhotoNumber,
-        onPhotoSaved: onPhotoSaved,
-      ),
-    );
-  }
-
-  /// Request camera permission and open Utiliteit screen.
-  Future<void> _openUtiliteit(BuildContext context) async {
-    await _requestCameraAndOpen(
-      (nextPhotoNumber, onPhotoSaved) => UtiiteitScreen(
-        bagData: widget.bagData,
-        albumName: _currentAlbumName(),
-        initialPhotoNumber: nextPhotoNumber,
-        onPhotoSaved: onPhotoSaved,
-      ),
-    );
-  }
-
-  /// Request camera permission and open WWS Punten screen.
-  Future<void> _openWwsPunten(BuildContext context) async {
-    await _requestCameraAndOpen(
-      (nextPhotoNumber, onPhotoSaved) => WwsPuntenScreen(
         bagData: widget.bagData,
         albumName: _currentAlbumName(),
         initialPhotoNumber: nextPhotoNumber,
@@ -263,27 +224,9 @@ class _PhotoSelectionScreenState extends State<PhotoSelectionScreen> {
               ),
               const SizedBox(height: 12),
               ElevatedButton.icon(
-                icon: const Icon(Icons.home),
-                label: const Text('Categorie: Wonen'),
-                onPressed: () => _openWonen(context),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
                 icon: const Icon(Icons.home_work),
-                label: const Text('Categorie: Wonen 2'),
+                label: const Text('Start foto\'s maken'),
                 onPressed: () => _openWonen2(context),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.business),
-                label: const Text('Categorie: Utiliteit'),
-                onPressed: () => _openUtiliteit(context),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.location_city),
-                label: const Text('Categorie: WWS Punten'),
-                onPressed: () => _openWwsPunten(context),
               ),
             ],
           ),

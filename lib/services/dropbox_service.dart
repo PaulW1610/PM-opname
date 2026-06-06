@@ -6,6 +6,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import '../config/app_secrets.dart';
+
 class DropboxUploadResult {
   final int uploadedCount;
   final int totalCount;
@@ -32,8 +34,8 @@ class DropboxUploadResult {
 ///      nl.paulweijers.photoorganizerapp://dropbox-auth
 /// 3. Copy your App key and paste it below as [_kAppKey].
 class DropboxService {
-  // TODO: Vul hier je Dropbox App Key in (van https://www.dropbox.com/developers/apps).
-  static const String _kAppKey = 'bnka9p385dbggii';
+  // App key wordt meegegeven via --dart-define (DROPBOX_APP_KEY), zie AppSecrets.
+  static const String _kAppKey = AppSecrets.dropboxAppKey;
 
   static const String _kRedirectUri =
       'nl.paulweijers.photoorganizerapp://dropbox-auth';

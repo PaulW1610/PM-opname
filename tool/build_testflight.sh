@@ -93,6 +93,13 @@ flutter pub get
 
 BUILD_ARGS=("--release" "--export-method" "app-store")
 
+if [[ -f "$ROOT_DIR/tool/dart_defines.json" ]]; then
+  BUILD_ARGS+=("--dart-define-from-file=$ROOT_DIR/tool/dart_defines.json")
+else
+  echo "⚠️  tool/dart_defines.json ontbreekt – API-keys (BAG/Dropbox) zijn leeg in deze build."
+  echo "    Kopieer tool/dart_defines.example.json naar tool/dart_defines.json en vul je keys in."
+fi
+
 if [[ -n "$BUILD_NAME" ]]; then
   BUILD_ARGS+=("--build-name" "$BUILD_NAME")
 fi

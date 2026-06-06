@@ -35,6 +35,9 @@ migrate_working_dir/
 /coverage/
 .env.testflight
 
+# Lokale secrets / dart-defines (NIET committen)
+tool/dart_defines.json
+
 # Symbolication related
 app.*.symbols
 

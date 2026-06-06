@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/bag_service.dart';
 import '../services/photo_library_service.dart';
@@ -44,25 +45,37 @@ bool _renderLabelOverlay(Map<String, String> payload) {
 
   final text = rawLabel.toUpperCase();
   final font = img.arial_24;
-  const textScale = 1.15;
+  // 50% larger than the previous scale of 1.3225.
+  const textScale = 1.98;
   final textWidth = math.max(1, _stringWidth(font, text));
   final textHeight = math.max(1, img.findStringHeight(font, text));
-  final textLayer = img.Image(textWidth, textHeight);
+  // Extra padding so the faux-bold offset copies are not clipped.
+  final textLayer = img.Image(textWidth + 2, textHeight + 2);
   img.fill(textLayer, img.getColor(0, 0, 0, 0));
 
-  img.drawString(
-    textLayer,
-    font,
-    0,
-    0,
-    text,
-    color: img.getColor(255, 255, 255),
-  );
+  // Draw the text several times with 1px offsets to thicken the strokes
+  // (faux-bold), since the bundled bitmap font has no bold variant.
+  const boldOffsets = <List<int>>[
+    [0, 0],
+    [1, 0],
+    [0, 1],
+    [1, 1],
+  ];
+  for (final offset in boldOffsets) {
+    img.drawString(
+      textLayer,
+      font,
+      offset[0],
+      offset[1],
+      text,
+      color: img.getColor(255, 255, 255),
+    );
+  }
 
   final scaledTextLayer = img.copyResize(
     textLayer,
-    width: math.max(1, (textWidth * textScale).round()),
-    height: math.max(1, (textHeight * textScale).round()),
+    width: math.max(1, (textLayer.width * textScale).round()),
+    height: math.max(1, (textLayer.height * textScale).round()),
     interpolation: img.Interpolation.linear,
   );
 
@@ -327,7 +340,47 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     _nextPhotoNumber = widget.initialPhotoNumber < 1 ? 1 : widget.initialPhotoNumber;
     WidgetsBinding.instance.addObserver(this);
     StabilityLoggerService.addBreadcrumb('camera_view_init');
+    _loadRecentCustomLabels();
     _initializeCamera();
+  }
+
+  /// Recently used custom labels, most recent first. Persisted so the same
+  /// text can be reused on the next photo (and after restarting the app).
+  static const String _recentCustomLabelsKey = 'recent_custom_labels_v1';
+  static const int _maxRecentCustomLabels = 12;
+  List<String> _recentCustomLabels = const [];
+
+  Future<void> _loadRecentCustomLabels() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getStringList(_recentCustomLabelsKey) ?? const [];
+      if (!mounted) return;
+      setState(() {
+        _recentCustomLabels = stored;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _rememberCustomLabel(String label) async {
+    final trimmed = label.trim();
+    if (trimmed.isEmpty) return;
+    final updated = <String>[trimmed];
+    for (final existing in _recentCustomLabels) {
+      if (existing.toLowerCase() == trimmed.toLowerCase()) continue;
+      if (updated.length >= _maxRecentCustomLabels) break;
+      updated.add(existing);
+    }
+    if (mounted) {
+      setState(() {
+        _recentCustomLabels = updated;
+      });
+    } else {
+      _recentCustomLabels = updated;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_recentCustomLabelsKey, updated);
+    } catch (_) {}
   }
 
   @override
@@ -618,30 +671,17 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
       return;
     }
 
-    final textController = TextEditingController();
+    // Prefill with the most recently used custom label so the same text can be
+    // reused with a single tap. The dialog owns its own TextEditingController
+    // and disposes it in its own dispose() to avoid using it after disposal.
+    final lastLabel =
+        _recentCustomLabels.isNotEmpty ? _recentCustomLabels.first : '';
+
     final enteredLabel = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Label invoeren'),
-        content: TextField(
-          controller: textController,
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          decoration: const InputDecoration(
-            hintText: 'Bijv. Meterkast',
-          ),
-          onSubmitted: (_) => Navigator.of(dialogContext).pop(textController.text),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Annuleren'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(textController.text),
-            child: const Text('OK'),
-          ),
-        ],
+      builder: (dialogContext) => _CustomLabelDialog(
+        initialText: lastLabel,
+        recentLabels: _recentCustomLabels,
       ),
     );
 
@@ -649,6 +689,7 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     if (label.isEmpty) {
       return;
     }
+    await _rememberCustomLabel(label);
     await _captureAndSave(label);
   }
 
@@ -1028,6 +1069,102 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
         '$label: ${ok ? '✅' : '❌'}',
         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
       ),
+    );
+  }
+}
+
+/// Dialog for entering a custom photo label, with quick-pick chips for
+/// previously used labels. Owns its own [TextEditingController] so its
+/// lifecycle is managed correctly (disposed only after the dialog is gone).
+class _CustomLabelDialog extends StatefulWidget {
+  final String initialText;
+  final List<String> recentLabels;
+
+  const _CustomLabelDialog({
+    required this.initialText,
+    required this.recentLabels,
+  });
+
+  @override
+  State<_CustomLabelDialog> createState() => _CustomLabelDialogState();
+}
+
+class _CustomLabelDialogState extends State<_CustomLabelDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+    // Select the prefilled text so it is easy to overwrite by typing.
+    _controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: widget.initialText.length,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _useRecent(String recent) {
+    _controller.text = recent;
+    _controller.selection = TextSelection.fromPosition(
+      TextPosition(offset: recent.length),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Label invoeren'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                hintText: 'Bijv. Meterkast',
+              ),
+              onSubmitted: (_) =>
+                  Navigator.of(context).pop(_controller.text),
+            ),
+            if (widget.recentLabels.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text('Eerder gebruikt:'),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: widget.recentLabels
+                    .map(
+                      (recent) => ActionChip(
+                        label: Text(recent),
+                        onPressed: () => _useRecent(recent),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annuleren'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('OK'),
+        ),
+      ],
     );
   }
 }

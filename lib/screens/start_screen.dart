@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:math' as math;
+import '../config/app_secrets.dart';
 import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
 import '../services/location_service.dart';
@@ -27,8 +28,7 @@ class StartScreen extends StatefulWidget {
 }
 
 class _StartScreenState extends State<StartScreen> {
-  static const String _bagApiKey =
-      String.fromEnvironment('BAG_API_KEY', defaultValue: 'l79175a82fbd564ef8b7ac64e4b7857001');
+  static const String _bagApiKey = AppSecrets.bagApiKey;
   static const String _savedDossiersKey = 'saved_dossiers_v1';
   static const double _defaultGpsBagRadiusMeters = 50.0;
   static const int _targetBagCandidateCount = 6;
