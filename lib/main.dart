@@ -33,7 +33,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     const azureBlue = Color(0xFF006FAF);
     return MaterialApp(
-      title: 'PM Realestate Data & Visuals',
+      title: 'blueprint collective',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: azureBlue),
         appBarTheme: const AppBarTheme(

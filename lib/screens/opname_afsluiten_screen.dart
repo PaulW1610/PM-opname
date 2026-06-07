@@ -11,6 +11,7 @@ import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
 import '../services/dropbox_service.dart';
 import '../services/dossier_service.dart';
+import '../services/json_export_service.dart';
 import '../services/opmerkingen_formulier_service.dart';
 import '../services/overige_ruimte_beslisschema_service.dart';
 import '../services/three_d_bag_service.dart';
@@ -249,8 +250,44 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
               dossierName: widget.dossierName,
             );
 
+      final jsonFile = await JsonExportService.createJsonForDossier(
+        dossierName: widget.dossierName,
+        data: <String, dynamic>{
+          'schemaVersie': JsonExportService.schemaVersie,
+          'dossierNaam': widget.dossierName,
+          'geexporteerdOp': DateTime.now().toIso8601String(),
+          'adres': {
+            'straat': (bagData.adres ?? '').trim(),
+            'huisnummer': (bagData.huisnummer ?? '').trim(),
+            'huisletterToevoeging':
+                (bagData.huisletterHuisnummertoevoeging ?? '').trim(),
+            'postcode': bagData.postcode.trim(),
+            'plaats': bagData.plaatsnaam.trim(),
+          },
+          'bag': {
+            'identificatie': (bagData.bagIdentificatie ?? '').trim(),
+            'pandId': (bagData.bagPandId ?? '').trim(),
+          },
+          'bouwjaar': bouwjaar,
+          'bouwjaarBron': _resolveBouwjaarBron(),
+          'gebouwhoogteMeter': _gebouwhoogte,
+          'formulier': {
+            'vloer': _vloerType,
+            'ventilatie': _ventilatieType,
+            'verwarming': _verwarmingTypeLabel,
+            'tapwater': _tapwaterType,
+            'koelingAanwezig': _koelingAanwezig,
+            'zonneEnergieAanwezig': _zonneEnergieAanwezig,
+            'renovatieVanToepassing': _renovatieVanToepassing,
+            'alleRamenHetzelfde': _alleRamenHetzelfde,
+            'aangeleverdeGegevens': _aangeleverdeGegevens.toList(),
+          },
+        },
+      );
+
       final attachmentPaths = <String>[
         xmlFile.path,
+        jsonFile.path,
         bagPdfFile.path,
         formulierPdfFile.path,
         if (beslisschemaPdfFile != null) beslisschemaPdfFile.path,
@@ -268,7 +305,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
 
       final email = Email(
         body:
-          'Bijgevoegd: XML export + BAG PDF + Formulier PDF'
+          'Bijgevoegd: XML export + JSON export + BAG PDF + Formulier PDF'
           '${beslisschemaPdfFile != null ? ' + Beslisschema PDF' : ''}'
           '${opmerkingenPdfFile != null ? ' + Opmerkingen PDF' : ''}'
           '${drieDbagImageFile != null ? ' + 3DBAG afbeelding' : ''} voor ${widget.dossierName}.',

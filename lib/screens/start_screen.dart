@@ -1218,7 +1218,7 @@ class _StartScreenState extends State<StartScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('PM Realestate Data & Visuals'),
+        title: const Text('blueprint collective'),
         actions: [
           IconButton(
             tooltip: 'Instellingen',
@@ -1243,7 +1243,7 @@ class _StartScreenState extends State<StartScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'PM Realestate Data & Visuals',
+                      'blueprint collective',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.w700,

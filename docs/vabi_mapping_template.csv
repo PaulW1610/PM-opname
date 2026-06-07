@@ -1,0 +1,45 @@
+app_veld;app_optie;vabi_xml_tag;vabi_waarde;opmerking
+# INSTRUCTIE: vul de kolommen 'vabi_xml_tag' en 'vabi_waarde' in.
+# - vabi_xml_tag = de XML-tag in import_template.xml waar deze keuze terecht moet komen (bijv. <Verwarming>...<Type>)
+# - vabi_waarde  = de exacte waarde/code die Vabi verwacht (bijv. een getal, enum of tekst)
+# - laat 'opmerking' vrij voor twijfelgevallen. Regels die met # beginnen zijn uitleg en mag je laten staan.
+# ---------------------------------------------------------------------------------------------------
+Vloer;Hout;;;
+Vloer;Beton;;;
+Ventilatie;A - Natuurlijk (toevoer + afvoer);;;
+Ventilatie;B - Mechanische toevoer, natuurlijke afvoer;;;
+Ventilatie;C - Natuurlijke toevoer, mechanische afvoer;;;
+Ventilatie;C - Vraaggestuurd (CO2);;;
+Ventilatie;C - Vraaggestuurd (RV);;;
+Ventilatie;D - Balansventilatie;;;
+Ventilatie;D - Balansventilatie met WTW;;;
+Ventilatie;D - Vraaggestuurd (CO2);;;
+Verwarming;Gasgestookte Ketel;;;LET OP: staat nu 2x in de app-lijst (dubbeling) - wil je 1 ervan vervangen/verwijderen?
+Verwarming;Lokaal Gaskachel;;;
+Verwarming;Lokaal Oliekachel;;;
+Verwarming;Electrische Verwarming;;;
+Verwarming;Moederhaard;;;
+Verwarming;WKK;;;
+Verwarming;Warmtepomp Gasabsorptie;;;
+Verwarming;Warmtepomp Gasmotor;;;
+Verwarming;Warmtepomp Electrisch;;;
+Verwarming;Biomassa kachel;;;
+Verwarming;Biomassakachel handgestookt;;;
+Verwarming;Biomassa Kachel automatisch gestookt;;;
+Tapwater;Tapwater zelfde als Verwarming;;;
+Tapwater;Boiler;;;
+Tapwater;Keukengeiser;;;
+Koeling;Ja;;;
+Koeling;Nee;;;
+Zonne-energie;Ja;;;
+Zonne-energie;Nee;;;
+Renovatie van toepassing;Ja;;;
+Renovatie van toepassing;Nee;;;
+Alle ramen hetzelfde;Ja;;;
+Alle ramen hetzelfde;Nee;;;
+Bouwjaar;(vrij in te vullen getal);<Bouwjaar>;;wordt al ingevuld (placeholder 3000)
+# ---------------------------------------------------------------------------------------------------
+# NIEUWE VELDEN: zet hieronder velden die nog NIET in de app staan maar wel in Vabi moeten.
+# Formaat: NIEUW_VELD;<naam veld>;<vabi_xml_tag>;<mogelijke waarden>;<toelichting>
+NIEUW_VELD;;;;
+NIEUW_VELD;;;;

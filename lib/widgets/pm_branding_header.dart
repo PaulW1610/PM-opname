@@ -44,7 +44,7 @@ class PmBrandingHeader extends StatelessWidget {
           const SizedBox(width: 10),
           Flexible(
             child: Text(
-              'PM Realestate Data & Visuals',
+              'blueprint collective',
               overflow: TextOverflow.ellipsis,
               style: titleStyle?.copyWith(fontWeight: FontWeight.w700),
             ),
