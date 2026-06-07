@@ -385,6 +385,24 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     } catch (_) {}
   }
 
+  /// Remove one saved custom label so the list can be pruned to a good set.
+  Future<void> _removeRecentCustomLabel(String label) async {
+    final updated = _recentCustomLabels
+        .where((l) => l.toLowerCase() != label.toLowerCase())
+        .toList(growable: false);
+    if (mounted) {
+      setState(() {
+        _recentCustomLabels = updated;
+      });
+    } else {
+      _recentCustomLabels = updated;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_recentCustomLabelsKey, updated);
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
     final controller = _controller;
@@ -682,6 +700,7 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
       builder: (dialogContext) => _CustomLabelDialog(
         initialText: lastLabel,
         recentLabels: _recentCustomLabels,
+        onDelete: _removeRecentCustomLabel,
       ),
     );
 
@@ -1138,9 +1157,13 @@ class _CustomLabelDialog extends StatefulWidget {
   final String initialText;
   final List<String> recentLabels;
 
+  /// Called when the user removes a saved label (to prune the list).
+  final void Function(String label)? onDelete;
+
   const _CustomLabelDialog({
     required this.initialText,
     required this.recentLabels,
+    this.onDelete,
   });
 
   @override
@@ -1149,10 +1172,12 @@ class _CustomLabelDialog extends StatefulWidget {
 
 class _CustomLabelDialogState extends State<_CustomLabelDialog> {
   late final TextEditingController _controller;
+  late List<String> _recent;
 
   @override
   void initState() {
     super.initState();
+    _recent = List<String>.from(widget.recentLabels);
     _controller = TextEditingController(text: widget.initialText);
     // Select the prefilled text so it is easy to overwrite by typing.
     _controller.selection = TextSelection(
@@ -1174,6 +1199,11 @@ class _CustomLabelDialogState extends State<_CustomLabelDialog> {
     );
   }
 
+  void _deleteRecent(String recent) {
+    setState(() => _recent.remove(recent));
+    widget.onDelete?.call(recent);
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -1193,18 +1223,21 @@ class _CustomLabelDialogState extends State<_CustomLabelDialog> {
               onSubmitted: (_) =>
                   Navigator.of(context).pop(_controller.text),
             ),
-            if (widget.recentLabels.isNotEmpty) ...[
+            if (_recent.isNotEmpty) ...[
               const SizedBox(height: 12),
-              const Text('Eerder gebruikt:'),
+              const Text('Eerder gebruikt (tik = kiezen, ✕ = verwijderen):'),
               const SizedBox(height: 6),
               Wrap(
                 spacing: 6,
                 runSpacing: 6,
-                children: widget.recentLabels
+                children: _recent
                     .map(
-                      (recent) => ActionChip(
+                      (recent) => InputChip(
                         label: Text(recent),
                         onPressed: () => _useRecent(recent),
+                        onDeleted: widget.onDelete == null
+                            ? null
+                            : () => _deleteRecent(recent),
                       ),
                     )
                     .toList(),
