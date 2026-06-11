@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -11,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/bag_service.dart';
 import '../services/photo_library_service.dart';
 import '../services/stability_logger_service.dart';
+import '../services/volume_button_service.dart';
 
 /// One choice in the camera label menu. When [subLabels] is non-empty, tapping
 /// the button opens a submenu and the chosen sub-label becomes the photo label;
@@ -343,7 +345,28 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     WidgetsBinding.instance.addObserver(this);
     StabilityLoggerService.addBreadcrumb('camera_view_init');
     _loadRecentCustomLabels();
+    _startVolumeButtonListener();
     _initializeCamera();
+  }
+
+  /// Luistert naar fysieke volumeknop-drukken om de sluiter te bedienen.
+  StreamSubscription<void>? _volumeButtonSub;
+
+  void _startVolumeButtonListener() {
+    try {
+      _volumeButtonSub = VolumeButtonService.presses
+          .listen((_) => _onVolumeButtonPressed(), onError: (_) {});
+    } catch (_) {}
+  }
+
+  void _onVolumeButtonPressed() {
+    if (!mounted) return;
+    // Volumeknop = sluiter, alleen op het opnamescherm (label gekozen) en
+    // als de camera klaar is en er niet al een opname loopt.
+    if (_armedLabel == null || _isSaving || _isInitializing) return;
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    _captureAndSave(_armedLabel!);
   }
 
   /// Recently used custom labels, most recent first. Persisted so the same
@@ -408,6 +431,8 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     final controller = _controller;
     _cameraSession++;
     _controller = null;
+    _volumeButtonSub?.cancel();
+    _volumeButtonSub = null;
     WidgetsBinding.instance.removeObserver(this);
     StabilityLoggerService.addBreadcrumb('camera_view_dispose');
     controller?.dispose();
@@ -1051,6 +1076,11 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Tip: de volumeknop maakt ook een foto',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ],
       ),
