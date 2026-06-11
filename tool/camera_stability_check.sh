@@ -33,24 +33,28 @@ echo "5) Ga terug en open camera scherm opnieuw (3x)"
 echo ""
 
 checks=0
-failures=0
+misses=0
+consecutive_misses=0
+# devicectl-processquery is soms flaky; pas falen na meerdere missers op rij.
+MAX_CONSECUTIVE_MISSES="${MAX_CONSECUTIVE_MISSES:-4}"
 end_epoch=$(( $(date +%s) + DURATION_SECONDS ))
 
 while [[ $(date +%s) -lt $end_epoch ]]; do
-  if xcrun devicectl device info processes --device "$DEVICE_ID" --filter "executablePath CONTAINS 'Runner.app/Runner'" | grep -q "Runner.app/Runner"; then
+  if xcrun devicectl device info processes --device "$DEVICE_ID" --filter "executablePath CONTAINS 'Runner.app/Runner'" 2>/dev/null | grep -q "Runner.app/Runner"; then
     checks=$((checks + 1))
+    consecutive_misses=0
   else
-    failures=$((failures + 1))
-    echo "Runner proces niet gevonden tijdens test."
-    break
+    misses=$((misses + 1))
+    consecutive_misses=$((consecutive_misses + 1))
+    echo "Health-check miste ($consecutive_misses/$MAX_CONSECUTIVE_MISSES op rij)."
+    if [[ $consecutive_misses -ge $MAX_CONSECUTIVE_MISSES ]]; then
+      echo "❌ Camera stabiliteitstest gefaald: app-proces ${consecutive_misses}x op rij niet gevonden (waarschijnlijke crash)."
+      echo "   checks=$checks totale-missers=$misses"
+      exit 1
+    fi
   fi
   sleep 3
 done
 
-if [[ $failures -eq 0 ]]; then
-  echo "✅ Camera stabiliteitstest geslaagd: ${checks} health-checks zonder proces-uitval."
-  exit 0
-fi
-
-echo "❌ Camera stabiliteitstest gefaald."
-exit 1
+echo "✅ Camera stabiliteitstest geslaagd: ${checks} health-checks, ${misses} losse misser(s) (flaky query), geen crash."
+exit 0

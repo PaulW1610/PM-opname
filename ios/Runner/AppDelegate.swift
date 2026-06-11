@@ -32,7 +32,10 @@ class VolumeButtonHandler: NSObject, FlutterStreamHandler {
   private let audioSession = AVAudioSession.sharedInstance()
   private var volumeView: MPVolumeView?
   private var observation: NSKeyValueObservation?
-  private var ignoreNextChange = false
+  // Negeer KVO-callbacks die voortkomen uit onze eigen volume-reset, op basis
+  // van een tijdvenster (geen vlag die kan blijven hangen als de reset niets doet).
+  private var suppressUntil = Date.distantPast
+  private let baseline: Float = 0.5
 
   static func register(messenger: FlutterBinaryMessenger) {
     let handler = VolumeButtonHandler()
@@ -57,7 +60,7 @@ class VolumeButtonHandler: NSObject, FlutterStreamHandler {
   private func start() {
     DispatchQueue.main.async {
       if self.volumeView == nil {
-        let mpv = MPVolumeView(frame: CGRect(x: -3000, y: -3000, width: 1, height: 1))
+        let mpv = MPVolumeView(frame: CGRect(x: -4000, y: -4000, width: 120, height: 40))
         mpv.alpha = 0.0001
         mpv.isUserInteractionEnabled = false
         self.keyWindow()?.addSubview(mpv)
@@ -68,21 +71,19 @@ class VolumeButtonHandler: NSObject, FlutterStreamHandler {
         try self.audioSession.setActive(true)
       } catch {}
 
-      // Eerste KVO-callback bevat de huidige waarde -> negeren.
-      self.ignoreNextChange = true
+      // Beginvolume naar het midden (eigen wijziging wordt onderdrukt).
+      self.applyBaseline()
       self.observation = self.audioSession.observe(
-        \.outputVolume, options: [.new, .initial]
+        \.outputVolume, options: [.new]
       ) { [weak self] _, _ in
         guard let self = self else { return }
-        if self.ignoreNextChange {
-          self.ignoreNextChange = false
-          return
-        }
+        // Negeer wijzigingen vlak na onze eigen reset.
+        if Date() < self.suppressUntil { return }
+        // Echte volumeknop-druk.
         self.eventSink?(nil)
-        // Terug naar het midden zodat de volgende druk weer een verandering geeft.
-        self.resetVolumeToMid()
+        // Zet terug naar het midden zodat er speling in beide richtingen blijft.
+        self.applyBaseline()
       }
-      self.resetVolumeToMid()
     }
   }
 
@@ -98,13 +99,14 @@ class VolumeButtonHandler: NSObject, FlutterStreamHandler {
     }
   }
 
-  private func resetVolumeToMid() {
-    guard let slider = volumeView?.subviews
-      .compactMap({ $0 as? UISlider }).first else { return }
-    // Onze eigen wijziging moet de volgende KVO-callback niet als druk tellen.
-    ignoreNextChange = true
+  private func applyBaseline() {
+    // Onderdruk KVO-callbacks die uit deze eigen wijziging voortkomen.
+    suppressUntil = Date().addingTimeInterval(0.3)
     DispatchQueue.main.async {
-      slider.setValue(0.5, animated: false)
+      guard let slider = self.volumeView?.subviews
+        .compactMap({ $0 as? UISlider }).first else { return }
+      slider.value = self.baseline
+      slider.setValue(self.baseline, animated: false)
       slider.sendActions(for: .valueChanged)
     }
   }
