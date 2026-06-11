@@ -646,7 +646,10 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
         } catch (_) {}
       }
 
-      await _drawLabelOnImage(image.path, label);
+      // Lege label = foto zonder tekstbalk; sla de overlay dan over.
+      if (label.trim().isNotEmpty) {
+        await _drawLabelOnImage(image.path, label);
+      }
 
       final albumName = widget.albumName;
       final photoNumber = _nextPhotoNumber;
@@ -826,9 +829,25 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
                 _buildOptionButton(option, enabled),
               if (widget.showCustomLabelCaptureButton)
                 _buildCustomLabelButton(enabled),
+              _buildNoLabelButton(enabled),
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildNoLabelButton(bool enabled) {
+    return OutlinedButton.icon(
+      onPressed: enabled ? () => _armLabel('') : null,
+      icon: const Icon(Icons.photo_camera),
+      label: const Text('Foto zonder label'),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: Colors.black.withValues(alpha: 0.45),
+        foregroundColor: Colors.white,
+        side: const BorderSide(color: Colors.white70),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -949,7 +968,9 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
-              _armedLabel!.toUpperCase(),
+              _armedLabel!.isEmpty
+                  ? 'FOTO (GEEN LABEL)'
+                  : _armedLabel!.toUpperCase(),
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 18,
