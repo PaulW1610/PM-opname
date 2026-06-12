@@ -9,7 +9,8 @@ import 'package:pdf/widgets.dart' as pw;
 import '../config/app_secrets.dart';
 import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
-import '../services/dropbox_service.dart';
+import '../services/nextcloud_service.dart';
+import '../services/dossier_photo_store.dart';
 import '../services/dossier_service.dart';
 import '../services/json_export_service.dart';
 import '../services/opmerkingen_formulier_service.dart';
@@ -294,7 +295,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         if (opmerkingenPdfFile != null) opmerkingenPdfFile.path,
         if (drieDbagImageFile != null) drieDbagImageFile.path,
       ];
-      final dropboxAddressFolderName = bagData.getFolderName();
+      final nextcloudRootFolder = _nextcloudRootFolderName(bagData);
       final recipientEmail = await AppSettingsService.loadEmailRecipient();
 
       if (mounted) {
@@ -317,20 +318,32 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
 
       await FlutterEmailSender.send(email);
 
-      // Auto-upload naar Dropbox als verbonden
-      String dropboxInfo = '';
-      if (await DropboxService.isConnected()) {
-        final uploadFiles = attachmentPaths.map((p) => File(p)).toList();
-        final uploadResult = await DropboxService.uploadDossierFiles(
-          addressFolderName: dropboxAddressFolderName,
-          files: uploadFiles,
+      // Auto-upload naar Nextcloud als geconfigureerd (export-bestanden -> EP/).
+      String nextcloudInfo = '';
+      if (await NextcloudService.isConfigured()) {
+        final epFiles = attachmentPaths.map((p) => File(p)).toList();
+        final fotoFiles = await DossierPhotoStore.photosForPrefix(
+          bagData.getPhotoFilePrefix(),
+        );
+        final uploadResult = await NextcloudService.uploadDossier(
+          rootFolderName: nextcloudRootFolder,
+          filesBySubfolder: {
+            'EP': epFiles,
+            if (fotoFiles.isNotEmpty) 'foto\'s': fotoFiles,
+          },
+          ensureSubfolders: const [
+            'foto\'s',
+            'EP',
+            'correspondentie',
+            'onderbouwing',
+          ],
         );
         if (uploadResult.uploadedCount > 0) {
-          dropboxInfo =
-              '\n${uploadResult.uploadedCount} bestand${uploadResult.uploadedCount == 1 ? '' : 'en'} geüpload naar Dropbox.';
+          nextcloudInfo =
+              '\n${uploadResult.uploadedCount} bestand(en) geüpload naar Nextcloud ("$nextcloudRootFolder"/EP).';
         }
         if (!uploadResult.isSuccess && (uploadResult.message?.isNotEmpty ?? false)) {
-          dropboxInfo = '$dropboxInfo\nDropbox: ${uploadResult.message}';
+          nextcloudInfo = '$nextcloudInfo\nNextcloud: ${uploadResult.message}';
         }
       }
 
@@ -344,7 +357,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
             '${drieDbagImageFile != null ? ' + 3DBAG afbeelding' : ''} '
             'aangemaakt en e-mail geopend. Bouwjaar: $bouwjaar '
             '(bron: ${_resolveBouwjaarBron()})'
-            '${_gebouwhoogte.isNotEmpty ? ', Gebouwhoogte: ${_gebouwhoogte} m (3DBAG)' : ''}$dropboxInfo',
+            '${_gebouwhoogte.isNotEmpty ? ', Gebouwhoogte: ${_gebouwhoogte} m (3DBAG)' : ''}$nextcloudInfo',
           ),
         ),
       );
@@ -361,16 +374,25 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     }
   }
 
-  Future<void> _uploadToDropbox() async {
-    if (!await DropboxService.isConnected()) {
+  /// Root-mapnaam op Nextcloud: "postcode huisnummer(toevoeging)".
+  String _nextcloudRootFolderName(BagData bagData) {
+    final postcode = bagData.postcode.trim();
+    final huisnummer = (bagData.huisnummer ?? '').trim();
+    final toevoeging = (bagData.huisletterHuisnummertoevoeging ?? '').trim();
+    final nummer = [huisnummer, toevoeging].where((s) => s.isNotEmpty).join('');
+    final name = [postcode, nummer].where((s) => s.isNotEmpty).join(' ').trim();
+    return name.isEmpty ? bagData.getFolderName() : name;
+  }
+
+  /// Handmatige upload naar Nextcloud (export -> EP/) met een duidelijk
+  /// resultaatvenster, los van de mail-stap.
+  Future<void> _uploadToNextcloud() async {
+    if (!await NextcloudService.isConfigured()) {
       if (!mounted) return;
-      final reason = DropboxService.lastError;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text(
-            reason != null && reason.isNotEmpty
-                ? 'Dropbox is niet klaar voor uploaden: $reason'
-                : 'Dropbox is niet verbonden. Verbind via Instellingen.',
+            'Nextcloud is niet ingesteld. Vul je gegevens in via Instellingen.',
           ),
         ),
       );
@@ -398,50 +420,65 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         bagId: (bagData.bagIdentificatie ?? '').trim(),
         bagPandId: (bagData.bagPandId ?? '').trim(),
       );
-      final bagPdfFile = await BagService.downloadBagPdfForDossier(
-        apiKey: _bagApiKey,
-        dossierName: widget.dossierName,
-        bagData: bagData,
-      );
       final formulierPdfFile = await _createFormulierPdfForMail(
         bagData: bagData,
         bouwjaar: bouwjaar,
       );
-      final beslisschemaPdfFile =
-          await OverigeRuimteBeslisschemaService.generatePdfFromSavedIfComplete(
-        dossierName: widget.dossierName,
-        bagData: bagData,
+      final rootFolder = _nextcloudRootFolderName(bagData);
+      final fotoFiles = await DossierPhotoStore.photosForPrefix(
+        bagData.getPhotoFilePrefix(),
       );
-      final opmerkingenPdfFile =
-          await OpmerkingenFormulierService.generatePdfFromSavedIfAny(
-        dossierName: widget.dossierName,
-        bagData: bagData,
-      );
-      final dropboxAddressFolderName = bagData.getFolderName();
-      final uploadResult = await DropboxService.uploadDossierFiles(
-        addressFolderName: dropboxAddressFolderName,
-        files: [
-          xmlFile,
-          bagPdfFile,
-          formulierPdfFile,
-          if (beslisschemaPdfFile != null) beslisschemaPdfFile,
-          if (opmerkingenPdfFile != null) opmerkingenPdfFile,
+      final result = await NextcloudService.uploadDossier(
+        rootFolderName: rootFolder,
+        filesBySubfolder: {
+          'EP': [xmlFile, formulierPdfFile],
+          if (fotoFiles.isNotEmpty) 'foto\'s': fotoFiles,
+        },
+        ensureSubfolders: const [
+          'foto\'s',
+          'EP',
+          'correspondentie',
+          'onderbouwing',
         ],
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            uploadResult.isSuccess
-                ? '${uploadResult.uploadedCount} bestand${uploadResult.uploadedCount == 1 ? '' : 'en'} geüpload naar de Dropbox app-map met adresprefix $dropboxAddressFolderName.'
-                : 'Dropbox upload deels/helemaal mislukt: ${uploadResult.message ?? 'onbekende fout'}',
+      await showDialog<void>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: Text(result.isSuccess
+              ? 'Nextcloud-upload geslaagd'
+              : 'Nextcloud-upload (deels) mislukt'),
+          content: SingleChildScrollView(
+            child: SelectableText(
+              'Map: "$rootFolder"/EP\n'
+              'Geüpload: ${result.uploadedCount}/${result.totalCount}\n'
+              '${result.failedFiles.isNotEmpty ? 'Mislukt: ${result.failedFiles.join(', ')}\n' : ''}'
+              '${result.message ?? NextcloudService.lastError ?? ''}'
+              '\n\nDoelpad (WebDAV):\n${result.targetUrl ?? '-'}',
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('OK'),
+            ),
+          ],
         ),
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Dropbox upload mislukt: $error')),
+      await showDialog<void>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('Nextcloud-upload mislukt'),
+          content: Text('$error'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
       );
     } finally {
       if (!mounted) return;
@@ -904,8 +941,8 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
               width: double.infinity,
               child: OutlinedButton.icon(
                 icon: const Icon(Icons.cloud_upload),
-                label: const Text('Upload naar Dropbox'),
-                onPressed: _isSaving ? null : _uploadToDropbox,
+                label: const Text('Upload naar Nextcloud'),
+                onPressed: _isSaving ? null : _uploadToNextcloud,
               ),
             ),
                   ],

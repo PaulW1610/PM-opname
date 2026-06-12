@@ -1,11 +1,7 @@
-import 'dart:async';
-
-import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../services/app_settings_service.dart';
-import '../services/dropbox_service.dart';
+import '../services/nextcloud_service.dart';
 
 class InstellingenScreen extends StatefulWidget {
   const InstellingenScreen({Key? key}) : super(key: key);
@@ -21,21 +17,27 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
   final TextEditingController _photoStorageController = TextEditingController();
   final TextEditingController _gpsRadiusController = TextEditingController();
 
+  final TextEditingController _ncUrlController = TextEditingController();
+  final TextEditingController _ncUserController = TextEditingController();
+  final TextEditingController _ncPassController = TextEditingController();
+  final TextEditingController _ncBaseController = TextEditingController();
+
   bool _isLoading = true;
   bool _isSaving = false;
-  bool _dropboxConnected = false;
-  StreamSubscription<Uri>? _appLinksSubscription;
+  bool _nextcloudConfigured = false;
+  bool _ncBusy = false;
+  String? _ncStatus;
+  bool _ncStatusOk = false;
 
   @override
   void initState() {
     super.initState();
     _load();
-    _setupAppLinks();
   }
 
   Future<void> _load() async {
     final settings = await AppSettingsService.loadSettings();
-    final dropboxConnected = await DropboxService.validateConnection();
+    final ncConfig = await NextcloudService.loadConfig();
     if (!mounted) {
       return;
     }
@@ -45,55 +47,63 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
       _examenUtiliteitController.text = settings.examenNummerUtiliteit;
       _photoStorageController.text = settings.photoStorageLocation;
       _gpsRadiusController.text = settings.gpsBagRadiusMeters.toStringAsFixed(0);
-      _isLoading = false;
-      _dropboxConnected = dropboxConnected;
-    });
-  }
-
-  void _setupAppLinks() {
-    _appLinksSubscription = AppLinks().uriLinkStream.listen((uri) {
-      if (uri.scheme == 'nl.paulweijers.photoorganizerapp' &&
-          uri.host == 'dropbox-auth') {
-        _handleDropboxCallback(uri);
+      if (ncConfig != null) {
+        _ncUrlController.text = ncConfig.baseUrl;
+        _ncUserController.text = ncConfig.username;
+        _ncPassController.text = ncConfig.appPassword;
+        _ncBaseController.text = ncConfig.basePath;
+        _nextcloudConfigured = true;
       }
+      _isLoading = false;
     });
   }
 
-  Future<void> _handleDropboxCallback(Uri uri) async {
-    final success = await DropboxService.handleAuthCallback(uri);
-    if (!mounted) return;
-    setState(() => _dropboxConnected = success);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          success
-              ? 'Dropbox verbonden! Bestanden worden automatisch geüpload.'
-              : 'Dropbox verbinding mislukt: ${DropboxService.lastError ?? 'onbekende fout'}',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _connectDropbox() async {
-    final url = await DropboxService.buildAuthUrl();
-    if (!await launchUrl(
-      Uri.parse(url),
-      mode: LaunchMode.externalApplication,
-    )) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Kan Dropbox niet openen.')),
-      );
+  Future<void> _saveAndTestNextcloud() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final url = _ncUrlController.text.trim();
+    final user = _ncUserController.text.trim();
+    final pass = _ncPassController.text.trim();
+    if (url.isEmpty || user.isEmpty || pass.isEmpty) {
+      setState(() {
+        _ncStatus = 'Vul server-URL, gebruiker én app-wachtwoord in.';
+        _ncStatusOk = false;
+      });
+      return;
     }
+    setState(() {
+      _ncBusy = true;
+      _ncStatus = null;
+    });
+    await NextcloudService.saveConfig(
+      baseUrl: url,
+      username: user,
+      appPassword: pass,
+      basePath: _ncBaseController.text,
+    );
+    final ok = await NextcloudService.testConnection();
+    if (!mounted) return;
+    setState(() {
+      _ncBusy = false;
+      _nextcloudConfigured = ok;
+      _ncStatusOk = ok;
+      _ncStatus = ok
+          ? 'Verbonden! Bestanden worden automatisch geüpload bij afronden.'
+          : (NextcloudService.lastError ?? 'Verbinding mislukt.');
+    });
   }
 
-  Future<void> _disconnectDropbox() async {
-    await DropboxService.disconnect();
+  Future<void> _disconnectNextcloud() async {
+    await NextcloudService.clearConfig();
     if (!mounted) return;
-    setState(() => _dropboxConnected = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Dropbox verbinding verbroken.')),
-    );
+    setState(() {
+      _ncUrlController.clear();
+      _ncUserController.clear();
+      _ncPassController.clear();
+      _ncBaseController.clear();
+      _nextcloudConfigured = false;
+      _ncStatus = 'Nextcloud-verbinding verbroken.';
+      _ncStatusOk = false;
+    });
   }
 
   Future<void> _save() async {
@@ -131,12 +141,15 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
 
   @override
   void dispose() {
-    _appLinksSubscription?.cancel();
     _emailController.dispose();
     _examenWonenController.dispose();
     _examenUtiliteitController.dispose();
     _photoStorageController.dispose();
     _gpsRadiusController.dispose();
+    _ncUrlController.dispose();
+    _ncUserController.dispose();
+    _ncPassController.dispose();
+    _ncBaseController.dispose();
     super.dispose();
   }
 
@@ -181,7 +194,7 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                   TextField(
                     controller: _photoStorageController,
                     decoration: const InputDecoration(
-                      labelText: 'Foto-opslag locatie (later OneDrive/Dropbox)',
+                      labelText: 'Foto-opslag locatie (optioneel)',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -195,30 +208,87 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                       border: const OutlineInputBorder(),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.save),
+                      label: const Text('Instellingen opslaan'),
+                      onPressed: _isSaving ? null : _save,
+                    ),
+                  ),
                   const SizedBox(height: 24),
                   const Divider(),
                   const SizedBox(height: 8),
                   const Text(
-                    'Dropbox',
+                    'Nextcloud (automatische upload)',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Gebruik een app-wachtwoord uit Nextcloud > Instellingen > '
+                    'Beveiliging. Server-URL bijv. https://cloud.jouwdomein.nl',
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
                   ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
                       Icon(
-                        _dropboxConnected ? Icons.check_circle : Icons.cloud_off,
-                        color: _dropboxConnected ? Colors.green : Colors.grey,
+                        _nextcloudConfigured ? Icons.check_circle : Icons.cloud_off,
+                        color: _nextcloudConfigured ? Colors.green : Colors.grey,
                       ),
                       const SizedBox(width: 8),
-                      Text(_dropboxConnected ? 'Verbonden' : 'Niet verbonden'),
+                      Text(_nextcloudConfigured ? 'Verbonden' : 'Niet verbonden'),
                     ],
                   ),
-                  if (!_dropboxConnected && (DropboxService.lastError?.isNotEmpty ?? false)) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _ncUrlController,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Server-URL',
+                      hintText: 'https://cloud.jouwdomein.nl',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _ncUserController,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Gebruikersnaam',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _ncPassController,
+                    obscureText: true,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'App-wachtwoord',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _ncBaseController,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Doelmap (optioneel, leeg = hoofdmap)',
+                      hintText: 'bijv. Opnames of Projecten/Opnames',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (_ncStatus != null) ...[
                     const SizedBox(height: 8),
                     Text(
-                      DropboxService.lastError!,
+                      _ncStatus!,
                       style: TextStyle(
-                        color: Colors.orange.shade800,
+                        color: _ncStatusOk
+                            ? Colors.green.shade800
+                            : Colors.orange.shade800,
                         fontSize: 12,
                       ),
                     ),
@@ -226,27 +296,30 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
-                    child: _dropboxConnected
-                        ? OutlinedButton.icon(
-                            icon: const Icon(Icons.link_off),
-                            label: const Text('Dropbox verbreken'),
-                            onPressed: _disconnectDropbox,
-                          )
-                        : ElevatedButton.icon(
-                            icon: const Icon(Icons.cloud_upload),
-                            label: const Text('Verbinden met Dropbox'),
-                            onPressed: _connectDropbox,
-                          ),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
                     child: ElevatedButton.icon(
-                      icon: const Icon(Icons.save),
-                      label: const Text('Opslaan'),
-                      onPressed: _isSaving ? null : _save,
+                      icon: _ncBusy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.cloud_done),
+                      label: Text(_ncBusy ? 'Testen…' : 'Verbinden & testen'),
+                      onPressed: _ncBusy ? null : _saveAndTestNextcloud,
                     ),
                   ),
+                  if (_nextcloudConfigured) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.link_off),
+                        label: const Text('Nextcloud verbreken'),
+                        onPressed: _ncBusy ? null : _disconnectNextcloud,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
