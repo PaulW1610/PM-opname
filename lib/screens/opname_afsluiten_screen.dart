@@ -326,7 +326,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
           bagData.getPhotoFilePrefix(),
         );
         final uploadResult = await NextcloudService.uploadDossier(
-          rootFolderName: nextcloudRootFolder,
+          rootFolderName: 'Lopend/$nextcloudRootFolder',
           filesBySubfolder: {
             'EP': epFiles,
             if (fotoFiles.isNotEmpty) 'foto\'s': fotoFiles,
@@ -432,7 +432,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         bagData.getPhotoFilePrefix(),
       );
       final result = await NextcloudService.uploadDossier(
-        rootFolderName: rootFolder,
+        rootFolderName: 'Lopend/$rootFolder',
         filesBySubfolder: {
           'EP': [xmlFile, formulierPdfFile],
           if (fotoFiles.isNotEmpty) 'foto\'s': fotoFiles,

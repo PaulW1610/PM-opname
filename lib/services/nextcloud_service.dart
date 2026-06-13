@@ -300,7 +300,8 @@ class NextcloudService {
     }
 
     final webdavRoot = _webdavRoot(cfg);
-    final safeRoot = sanitizeSegment(rootFolderName);
+    // rootFolderName mag meerdere segmenten bevatten (bv. "Lopend/1234AB ...").
+    final safeRoot = _normalizePath(rootFolderName);
     final rootPath = cfg.basePath.isEmpty ? safeRoot : '${cfg.basePath}/$safeRoot';
     final targetUrl = '$webdavRoot/$rootPath';
     var uploaded = 0;
