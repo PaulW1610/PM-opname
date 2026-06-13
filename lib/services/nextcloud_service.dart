@@ -4,6 +4,15 @@ import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+/// Manier van verbinden met Nextcloud.
+enum NextcloudMode {
+  /// Eigen account (gebruiker + app-wachtwoord), schrijft in `remote.php/dav`.
+  account,
+
+  /// Publieke deellink met upload-rechten, schrijft via `public.php/webdav`.
+  link,
+}
+
 /// Resultaat van een dossier-upload naar Nextcloud.
 class NextcloudUploadResult {
   final int uploadedCount;
@@ -27,36 +36,65 @@ class NextcloudUploadResult {
 
 /// Verbinding met een Nextcloud-server via WebDAV.
 ///
-/// Auth gebeurt met een **app-wachtwoord** (Nextcloud > Instellingen >
-/// Beveiliging) via HTTP Basic auth. Server-URL, gebruiker en app-wachtwoord
-/// worden versleuteld opgeslagen in [FlutterSecureStorage] — niets hardcoded.
+/// Twee modes:
+/// - **account**: gebruiker + app-wachtwoord (Basic auth) op `remote.php/dav`.
+/// - **link**: een publieke deellink met upload-rechten op `public.php/webdav`
+///   (geen account nodig; auth = link-token + eventueel link-wachtwoord).
+///
+/// Alle gegevens worden versleuteld opgeslagen in [FlutterSecureStorage].
 class NextcloudService {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const String _kMode = 'nextcloud_mode_v1';
   static const String _kBaseUrl = 'nextcloud_base_url_v1';
   static const String _kUsername = 'nextcloud_username_v1';
   static const String _kAppPassword = 'nextcloud_app_password_v1';
   static const String _kBasePath = 'nextcloud_base_path_v1';
+  static const String _kLinkUrl = 'nextcloud_link_url_v1';
+  static const String _kLinkPassword = 'nextcloud_link_password_v1';
 
   static String? _lastError;
   static String? get lastError => _lastError;
 
-  static Future<void> saveConfig({
+  static Future<void> saveAccountConfig({
     required String baseUrl,
     required String username,
     required String appPassword,
     String basePath = '',
   }) async {
+    await _storage.write(key: _kMode, value: 'account');
     await _storage.write(key: _kBaseUrl, value: _normalizeBaseUrl(baseUrl));
     await _storage.write(key: _kUsername, value: username.trim());
     await _storage.write(key: _kAppPassword, value: appPassword.trim());
     await _storage.write(key: _kBasePath, value: _normalizePath(basePath));
   }
 
+  static Future<void> saveLinkConfig({
+    required String linkUrl,
+    String linkPassword = '',
+    String basePath = '',
+  }) async {
+    await _storage.write(key: _kMode, value: 'link');
+    await _storage.write(key: _kLinkUrl, value: linkUrl.trim());
+    await _storage.write(key: _kLinkPassword, value: linkPassword.trim());
+    await _storage.write(key: _kBasePath, value: _normalizePath(basePath));
+  }
+
   static Future<NextcloudConfig?> loadConfig() async {
+    final mode = (await _storage.read(key: _kMode)) ?? 'account';
+    final basePath = _normalizePath((await _storage.read(key: _kBasePath)) ?? '');
+    if (mode == 'link') {
+      final linkUrl = await _storage.read(key: _kLinkUrl);
+      if (linkUrl == null || linkUrl.trim().isEmpty) return null;
+      return NextcloudConfig(
+        mode: NextcloudMode.link,
+        linkUrl: linkUrl.trim(),
+        linkPassword: (await _storage.read(key: _kLinkPassword)) ?? '',
+        basePath: basePath,
+      );
+    }
     final baseUrl = await _storage.read(key: _kBaseUrl);
     final username = await _storage.read(key: _kUsername);
     final appPassword = await _storage.read(key: _kAppPassword);
-    final basePath = await _storage.read(key: _kBasePath);
     if (baseUrl == null ||
         username == null ||
         appPassword == null ||
@@ -66,20 +104,28 @@ class NextcloudService {
       return null;
     }
     return NextcloudConfig(
+      mode: NextcloudMode.account,
       baseUrl: baseUrl,
       username: username,
       appPassword: appPassword,
-      basePath: _normalizePath(basePath ?? ''),
+      basePath: basePath,
     );
   }
 
   static Future<bool> isConfigured() async => (await loadConfig()) != null;
 
   static Future<void> clearConfig() async {
-    await _storage.delete(key: _kBaseUrl);
-    await _storage.delete(key: _kUsername);
-    await _storage.delete(key: _kAppPassword);
-    await _storage.delete(key: _kBasePath);
+    for (final k in [
+      _kMode,
+      _kBaseUrl,
+      _kUsername,
+      _kAppPassword,
+      _kBasePath,
+      _kLinkUrl,
+      _kLinkPassword,
+    ]) {
+      await _storage.delete(key: k);
+    }
   }
 
   static String _normalizeBaseUrl(String raw) {
@@ -90,8 +136,7 @@ class NextcloudService {
     return value;
   }
 
-  /// Normaliseert een doelmap-pad: trim, geen voor-/achterliggende slashes,
-  /// per segment opgeschoond. Lege string = hoofdmap.
+  /// Normaliseert een doelmap-pad: per segment opgeschoond, geen slashes om.
   static String _normalizePath(String raw) {
     return raw
         .split('/')
@@ -101,11 +146,42 @@ class NextcloudService {
         .join('/');
   }
 
-  static String _webdavRoot(NextcloudConfig cfg) =>
-      '${cfg.baseUrl}/remote.php/dav/files/${Uri.encodeComponent(cfg.username)}';
+  // --- Mode-afhankelijke WebDAV-basis + auth ---
+
+  static String _linkServerBase(String linkUrl) {
+    final idx = linkUrl.indexOf('/s/');
+    var base = idx >= 0 ? linkUrl.substring(0, idx) : linkUrl;
+    if (base.endsWith('/index.php')) {
+      base = base.substring(0, base.length - '/index.php'.length);
+    }
+    return _normalizeBaseUrl(base);
+  }
+
+  static String _linkToken(String linkUrl) {
+    final idx = linkUrl.indexOf('/s/');
+    if (idx < 0) return '';
+    final rest = linkUrl.substring(idx + 3);
+    return rest.split('/').first.split('?').first.trim();
+  }
+
+  static String _webdavRoot(NextcloudConfig cfg) {
+    if (cfg.mode == NextcloudMode.link) {
+      return '${_linkServerBase(cfg.linkUrl)}/public.php/webdav';
+    }
+    return '${cfg.baseUrl}/remote.php/dav/files/${Uri.encodeComponent(cfg.username)}';
+  }
 
   static Map<String, String> _authHeaders(NextcloudConfig cfg) {
-    final token = base64Encode(utf8.encode('${cfg.username}:${cfg.appPassword}'));
+    final String user;
+    final String pass;
+    if (cfg.mode == NextcloudMode.link) {
+      user = _linkToken(cfg.linkUrl);
+      pass = cfg.linkPassword;
+    } else {
+      user = cfg.username;
+      pass = cfg.appPassword;
+    }
+    final token = base64Encode(utf8.encode('$user:$pass'));
     return {'Authorization': 'Basic $token'};
   }
 
@@ -117,12 +193,16 @@ class NextcloudService {
     return value.isEmpty ? 'onbekend' : value;
   }
 
-  /// Test of server + inloggegevens werken (WebDAV PROPFIND op de eigen map).
+  /// Test of server + gegevens werken (WebDAV PROPFIND op de doelmap-root).
   static Future<bool> testConnection() async {
     _lastError = null;
     final cfg = await loadConfig();
     if (cfg == null) {
       _lastError = 'Geen Nextcloud-gegevens ingevuld.';
+      return false;
+    }
+    if (cfg.mode == NextcloudMode.link && _linkToken(cfg.linkUrl).isEmpty) {
+      _lastError = 'Ongeldige deellink — verwacht iets als https://server/s/AbC123';
       return false;
     }
     try {
@@ -137,11 +217,13 @@ class NextcloudService {
         return true;
       }
       if (resp.statusCode == 401) {
-        _lastError = 'Inloggen mislukt — controleer gebruiker en app-wachtwoord.';
+        _lastError = cfg.mode == NextcloudMode.link
+            ? 'Inloggen mislukt — klopt het link-wachtwoord (indien ingesteld)?'
+            : 'Inloggen mislukt — controleer gebruiker en app-wachtwoord.';
         return false;
       }
       if (resp.statusCode == 404) {
-        _lastError = 'WebDAV-pad niet gevonden — klopt de server-URL?';
+        _lastError = 'WebDAV-pad niet gevonden — klopt de URL/link?';
         return false;
       }
       _lastError = 'Server gaf status ${resp.statusCode}.';
@@ -168,7 +250,6 @@ class NextcloudService {
       final resp =
           await http.Client().send(req).timeout(const Duration(seconds: 30));
       await resp.stream.drain<void>();
-      // 201 = aangemaakt, 405/200 = bestaat al -> beide prima.
       if (resp.statusCode != 201 &&
           resp.statusCode != 405 &&
           resp.statusCode != 200) {
@@ -199,7 +280,6 @@ class NextcloudService {
 
   /// Maakt de dossiermap + standaard-submappen aan en uploadt de bestanden in
   /// de juiste submap. [filesBySubfolder] bv. {'EP': [xml, json, pdf...]}.
-  /// [ensureSubfolders] maakt (lege) submappen aan zoals 'correspondentie'.
   static Future<NextcloudUploadResult> uploadDossier({
     required String rootFolderName,
     required Map<String, List<File>> filesBySubfolder,
@@ -221,7 +301,6 @@ class NextcloudService {
 
     final webdavRoot = _webdavRoot(cfg);
     final safeRoot = sanitizeSegment(rootFolderName);
-    // Doelmap (basispad) vooraan zetten; leeg = hoofdmap.
     final rootPath = cfg.basePath.isEmpty ? safeRoot : '${cfg.basePath}/$safeRoot';
     final targetUrl = '$webdavRoot/$rootPath';
     var uploaded = 0;
@@ -271,17 +350,24 @@ class NextcloudService {
 }
 
 class NextcloudConfig {
+  final NextcloudMode mode;
   final String baseUrl;
   final String username;
   final String appPassword;
+  final String linkUrl;
+  final String linkPassword;
 
-  /// Optionele doelmap waaronder de dossiermappen komen (leeg = hoofdmap).
+  /// Optionele doelmap waaronder de dossiermappen komen (leeg = de gedeelde
+  /// map zelf, of de hoofdmap bij account-modus).
   final String basePath;
 
   const NextcloudConfig({
-    required this.baseUrl,
-    required this.username,
-    required this.appPassword,
+    required this.mode,
+    this.baseUrl = '',
+    this.username = '',
+    this.appPassword = '',
+    this.linkUrl = '',
+    this.linkPassword = '',
     this.basePath = '',
   });
 }

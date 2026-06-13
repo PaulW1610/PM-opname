@@ -21,6 +21,10 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
   final TextEditingController _ncUserController = TextEditingController();
   final TextEditingController _ncPassController = TextEditingController();
   final TextEditingController _ncBaseController = TextEditingController();
+  final TextEditingController _ncLinkController = TextEditingController();
+  final TextEditingController _ncLinkPassController = TextEditingController();
+
+  NextcloudMode _ncMode = NextcloudMode.link;
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -48,9 +52,12 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
       _photoStorageController.text = settings.photoStorageLocation;
       _gpsRadiusController.text = settings.gpsBagRadiusMeters.toStringAsFixed(0);
       if (ncConfig != null) {
+        _ncMode = ncConfig.mode;
         _ncUrlController.text = ncConfig.baseUrl;
         _ncUserController.text = ncConfig.username;
         _ncPassController.text = ncConfig.appPassword;
+        _ncLinkController.text = ncConfig.linkUrl;
+        _ncLinkPassController.text = ncConfig.linkPassword;
         _ncBaseController.text = ncConfig.basePath;
         _nextcloudConfigured = true;
       }
@@ -60,26 +67,47 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
 
   Future<void> _saveAndTestNextcloud() async {
     FocusManager.instance.primaryFocus?.unfocus();
-    final url = _ncUrlController.text.trim();
-    final user = _ncUserController.text.trim();
-    final pass = _ncPassController.text.trim();
-    if (url.isEmpty || user.isEmpty || pass.isEmpty) {
+    if (_ncMode == NextcloudMode.link) {
+      final link = _ncLinkController.text.trim();
+      if (link.isEmpty || !link.contains('/s/')) {
+        setState(() {
+          _ncStatus =
+              'Vul een geldige deellink in (bijv. https://cloud.domein.nl/s/AbC123).';
+          _ncStatusOk = false;
+        });
+        return;
+      }
       setState(() {
-        _ncStatus = 'Vul server-URL, gebruiker én app-wachtwoord in.';
-        _ncStatusOk = false;
+        _ncBusy = true;
+        _ncStatus = null;
       });
-      return;
+      await NextcloudService.saveLinkConfig(
+        linkUrl: link,
+        linkPassword: _ncLinkPassController.text,
+        basePath: _ncBaseController.text,
+      );
+    } else {
+      final url = _ncUrlController.text.trim();
+      final user = _ncUserController.text.trim();
+      final pass = _ncPassController.text.trim();
+      if (url.isEmpty || user.isEmpty || pass.isEmpty) {
+        setState(() {
+          _ncStatus = 'Vul server-URL, gebruiker én app-wachtwoord in.';
+          _ncStatusOk = false;
+        });
+        return;
+      }
+      setState(() {
+        _ncBusy = true;
+        _ncStatus = null;
+      });
+      await NextcloudService.saveAccountConfig(
+        baseUrl: url,
+        username: user,
+        appPassword: pass,
+        basePath: _ncBaseController.text,
+      );
     }
-    setState(() {
-      _ncBusy = true;
-      _ncStatus = null;
-    });
-    await NextcloudService.saveConfig(
-      baseUrl: url,
-      username: user,
-      appPassword: pass,
-      basePath: _ncBaseController.text,
-    );
     final ok = await NextcloudService.testConnection();
     if (!mounted) return;
     setState(() {
@@ -99,6 +127,8 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
       _ncUrlController.clear();
       _ncUserController.clear();
       _ncPassController.clear();
+      _ncLinkController.clear();
+      _ncLinkPassController.clear();
       _ncBaseController.clear();
       _nextcloudConfigured = false;
       _ncStatus = 'Nextcloud-verbinding verbroken.';
@@ -149,6 +179,8 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
     _ncUrlController.dispose();
     _ncUserController.dispose();
     _ncPassController.dispose();
+    _ncLinkController.dispose();
+    _ncLinkPassController.dispose();
     _ncBaseController.dispose();
     super.dispose();
   }
@@ -224,12 +256,6 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                     'Nextcloud (automatische upload)',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Gebruik een app-wachtwoord uit Nextcloud > Instellingen > '
-                    'Beveiliging. Server-URL bijv. https://cloud.jouwdomein.nl',
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -242,42 +268,95 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _ncUrlController,
-                    keyboardType: TextInputType.url,
-                    autocorrect: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Server-URL',
-                      hintText: 'https://cloud.jouwdomein.nl',
-                      border: OutlineInputBorder(),
-                    ),
+                  SegmentedButton<NextcloudMode>(
+                    segments: const [
+                      ButtonSegment(
+                        value: NextcloudMode.link,
+                        label: Text('Publieke link'),
+                        icon: Icon(Icons.link),
+                      ),
+                      ButtonSegment(
+                        value: NextcloudMode.account,
+                        label: Text('Account'),
+                        icon: Icon(Icons.person),
+                      ),
+                    ],
+                    selected: {_ncMode},
+                    onSelectionChanged: (s) =>
+                        setState(() => _ncMode = s.first),
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _ncUserController,
-                    autocorrect: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Gebruikersnaam',
-                      border: OutlineInputBorder(),
+                  if (_ncMode == NextcloudMode.link) ...[
+                    const Text(
+                      'Maak in Nextcloud een deellink met "Uploaden en bewerken '
+                      'toestaan" en plak die hier. Optioneel een link-wachtwoord.',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _ncPassController,
-                    obscureText: true,
-                    autocorrect: false,
-                    decoration: const InputDecoration(
-                      labelText: 'App-wachtwoord',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _ncLinkController,
+                      keyboardType: TextInputType.url,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Deellink',
+                        hintText: 'https://cloud.jouwdomein.nl/s/AbC123',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _ncLinkPassController,
+                      obscureText: true,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Link-wachtwoord (optioneel)',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ] else ...[
+                    const Text(
+                      'Gebruik een app-wachtwoord uit Nextcloud > Instellingen > '
+                      'Beveiliging. Server-URL bijv. https://cloud.jouwdomein.nl',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _ncUrlController,
+                      keyboardType: TextInputType.url,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Server-URL',
+                        hintText: 'https://cloud.jouwdomein.nl',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _ncUserController,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Gebruikersnaam',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _ncPassController,
+                      obscureText: true,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'App-wachtwoord',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   TextField(
                     controller: _ncBaseController,
                     autocorrect: false,
                     decoration: const InputDecoration(
-                      labelText: 'Doelmap (optioneel, leeg = hoofdmap)',
-                      hintText: 'bijv. Opnames of Projecten/Opnames',
+                      labelText: 'Submap in de gedeelde map (optioneel)',
+                      hintText: 'bijv. Opnames',
                       border: OutlineInputBorder(),
                     ),
                   ),
