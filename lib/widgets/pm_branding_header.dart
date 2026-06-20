@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 class PmBrandingHeader extends StatelessWidget {
   final bool compact;
   final bool showBackButton;
+  final bool showHomeButton;
 
   const PmBrandingHeader({
     Key? key,
     this.compact = true,
     this.showBackButton = false,
+    this.showHomeButton = true,
   }) : super(key: key);
 
   @override
@@ -49,7 +51,15 @@ class PmBrandingHeader extends StatelessWidget {
               style: titleStyle?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
-          const SizedBox(width: 40),
+          if (showHomeButton)
+            IconButton(
+              tooltip: 'Home',
+              icon: const Icon(Icons.home_outlined),
+              onPressed: () =>
+                  Navigator.of(context).popUntil((route) => route.isFirst),
+            )
+          else
+            const SizedBox(width: 40),
         ],
       ),
     );

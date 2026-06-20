@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'screens/start_screen.dart';
 import 'services/stability_logger_service.dart';
+import 'theme/brand.dart';
 
 /// Entrypoint for the Photo Organizer app.
 Future<void> main() async {
@@ -31,44 +32,55 @@ class MyApp extends StatelessWidget {
   /// Build the [MaterialApp] used as the app shell.
   @override
   Widget build(BuildContext context) {
-    const azureBlue = Color(0xFF006FAF);
+    const navy = BrandColors.navy;
+    const orange = BrandColors.orange;
     return MaterialApp(
       title: 'blueprint collective',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: azureBlue),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: navy,
+          primary: navy,
+          secondary: orange,
+        ),
+        scaffoldBackgroundColor: const Color(0xFFF4F6FA),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Color(0xFF2F3A1F),
+          backgroundColor: navy,
+          foregroundColor: Colors.white,
           elevation: 0,
           centerTitle: true,
+          iconTheme: IconThemeData(color: Colors.white),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: azureBlue,
+            backgroundColor: navy,
             foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ),
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            backgroundColor: azureBlue,
+            backgroundColor: navy,
             foregroundColor: Colors.white,
           ),
         ),
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
-            backgroundColor: azureBlue,
-            foregroundColor: Colors.white,
-            side: const BorderSide(color: azureBlue),
+            foregroundColor: navy,
+            side: const BorderSide(color: navy),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ),
         ),
         textButtonTheme: TextButtonThemeData(
           style: TextButton.styleFrom(
-            backgroundColor: azureBlue,
-            foregroundColor: Colors.white,
+            foregroundColor: navy,
           ),
         ),
         floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: azureBlue,
+          backgroundColor: orange,
           foregroundColor: Colors.white,
         ),
       ),

@@ -10,6 +10,7 @@ import '../config/app_secrets.dart';
 import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
 import '../services/location_service.dart';
+import '../theme/brand.dart';
 import 'beslisschemas_screen.dart';
 import 'instellingen_screen.dart';
 import 'opname_afsluiten_screen.dart';
@@ -1259,7 +1260,7 @@ class _StartScreenState extends State<StartScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.location_on, size: 48, color: Colors.blue),
+                      const Icon(Icons.location_on, size: 48, color: BrandColors.navy),
                       const SizedBox(height: 16),
                       Text(
                         'Adres opgehaald:',
@@ -1318,27 +1319,10 @@ class _StartScreenState extends State<StartScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.search),
-                label: const Text('Zoek op postcode + huisnummer'),
-                onPressed: _isLoading ? null : _searchBagByManualPair,
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.gps_fixed),
-                label: const Text('Ophalen Adres'),
-                onPressed: _isLoading ? null : _fetchAddress,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green.shade700,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.edit_location_alt),
-                label: const Text('Gebruik handmatig adres'),
-                onPressed: _useManualAddress,
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: _buildActionGrid(),
               ),
               if (_bagCandidates.isNotEmpty)
                 const SizedBox(height: 16),
@@ -1424,27 +1408,6 @@ class _StartScreenState extends State<StartScreen> {
                 ),
                 const SizedBox(height: 8),
               ],
-              ElevatedButton.icon(
-                icon: const Icon(Icons.assignment_turned_in),
-                label: const Text('Opname afsluiten'),
-                onPressed: _isLoading ? null : _openOpnameAfsluiten,
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.account_tree_outlined),
-                label: const Text('Beslisschemas en formulieren'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF006FAF),
-                  foregroundColor: Colors.white,
-                ),
-                onPressed: _isLoading ? null : _openBeslisschemas,
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.bookmark_add_outlined),
-                label: const Text('Adres opslaan in projecten'),
-                onPressed: _isLoading ? null : _saveCurrentAddressForLater,
-              ),
               const SizedBox(height: 16),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1502,18 +1465,71 @@ class _StartScreenState extends State<StartScreen> {
                   ],
                 ),
               ),
-              if (_bagData != null) ...[
-                const SizedBox(height: 12),
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.arrow_forward),
-                  label: const Text('Naar camera'),
-                  onPressed: _proceedToPhotos,
-                ),
-              ],
+              const SizedBox(height: 16),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  /// Uniform rooster van vierkante huisstijl-knoppen voor de hoofdacties.
+  ///
+  /// Oranje = belangrijkste acties (adres ophalen, naar camera); marineblauw =
+  /// de overige acties. Knoppen die een adres vereisen zijn uitgeschakeld tot
+  /// er een adres gekozen is, zodat de lay-out stabiel blijft.
+  Widget _buildActionGrid() {
+    final bool hasAddress = _bagData != null;
+    final bool busy = _isLoading;
+
+    final tiles = <Widget>[
+      BrandTileButton(
+        icon: Icons.gps_fixed,
+        label: 'Adres ophalen',
+        color: BrandColors.orange,
+        onPressed: busy ? null : _fetchAddress,
+      ),
+      BrandTileButton(
+        icon: Icons.photo_camera,
+        label: 'Naar camera',
+        color: BrandColors.orange,
+        onPressed: (busy || !hasAddress) ? null : _proceedToPhotos,
+      ),
+      BrandTileButton(
+        icon: Icons.search,
+        label: 'Zoek op postcode',
+        onPressed: busy ? null : _searchBagByManualPair,
+      ),
+      BrandTileButton(
+        icon: Icons.edit_location_alt,
+        label: 'Handmatig adres',
+        onPressed: busy ? null : _useManualAddress,
+      ),
+      BrandTileButton(
+        icon: Icons.assignment_turned_in,
+        label: 'Opname afsluiten',
+        onPressed: (busy || !hasAddress) ? null : _openOpnameAfsluiten,
+      ),
+      BrandTileButton(
+        icon: Icons.account_tree_outlined,
+        label: 'Beslisschemas',
+        onPressed: (busy || !hasAddress) ? null : _openBeslisschemas,
+      ),
+      BrandTileButton(
+        icon: Icons.bookmark_add_outlined,
+        label: 'Adres opslaan',
+        onPressed: (busy || !hasAddress) ? null : _saveCurrentAddressForLater,
+      ),
+    ];
+
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 14,
+      crossAxisSpacing: 14,
+      childAspectRatio: 1,
+      children: tiles,
     );
   }
 

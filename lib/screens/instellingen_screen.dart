@@ -190,6 +190,14 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Instellingen'),
+        actions: [
+          IconButton(
+            tooltip: 'Home',
+            icon: const Icon(Icons.home_outlined),
+            onPressed: () =>
+                Navigator.of(context).popUntil((route) => route.isFirst),
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

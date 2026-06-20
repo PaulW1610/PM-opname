@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/bag_service.dart';
 import '../services/dossier_photo_store.dart';
+import '../services/nextcloud_service.dart';
 import '../services/photo_library_service.dart';
 import '../services/stability_logger_service.dart';
 import '../services/volume_button_service.dart';
@@ -353,6 +354,23 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
   /// Luistert naar fysieke volumeknop-drukken om de sluiter te bedienen.
   StreamSubscription<void>? _volumeButtonSub;
 
+  /// Serie van achtergrond-uploads naar Nextcloud (één voor één, niet-blokkerend).
+  Future<void> _ncUploadChain = Future<void>.value();
+
+  void _queueNextcloudPhotoUpload(File foto) {
+    final root = 'Lopend/${widget.bagData.getNextcloudDossierName()}';
+    _ncUploadChain = _ncUploadChain.then((_) async {
+      try {
+        if (await NextcloudService.isConfigured()) {
+          await NextcloudService.uploadSinglePhoto(
+            rootFolderName: root,
+            file: foto,
+          );
+        }
+      } catch (_) {}
+    });
+  }
+
   void _startVolumeButtonListener() {
     try {
       _volumeButtonSub = VolumeButtonService.presses
@@ -686,13 +704,17 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
         photoSequenceNumber: photoNumber,
       );
 
-      // Bewaar ook een lokale kopie voor de Nextcloud-upload (map foto's/).
+      // Bewaar lokale kopie + upload 'm op de achtergrond naar Nextcloud
+      // (niet-blokkerend; de afsluit-upload is het vangnet voor wat nog mist).
       try {
-        await DossierPhotoStore.savePhoto(
+        final savedFoto = await DossierPhotoStore.savePhoto(
           sourcePath: image.path,
           prefix: widget.bagData.getPhotoFilePrefix(),
           sequenceNumber: photoNumber,
         );
+        if (savedFoto != null) {
+          _queueNextcloudPhotoUpload(savedFoto);
+        }
       } catch (_) {}
 
       if (!mounted) return;

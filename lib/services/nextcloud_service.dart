@@ -55,6 +55,9 @@ class NextcloudService {
   static String? _lastError;
   static String? get lastError => _lastError;
 
+  /// Mappen die deze sessie al zijn aangemaakt (voorkomt onnodige MKCOL's).
+  static final Set<String> _ensuredPaths = <String>{};
+
   static Future<void> saveAccountConfig({
     required String baseUrl,
     required String username,
@@ -278,6 +281,54 @@ class NextcloudService {
     }
   }
 
+  /// Bestaat dit bestand al op de server? (HEAD; bij twijfel false.)
+  static Future<bool> _fileExists(
+    NextcloudConfig cfg,
+    String webdavRoot,
+    String remotePath,
+  ) async {
+    try {
+      final uri = Uri.parse('$webdavRoot/${_encodePath(remotePath)}');
+      final req = http.Request('HEAD', uri);
+      req.headers.addAll(_authHeaders(cfg));
+      final resp =
+          await http.Client().send(req).timeout(const Duration(seconds: 15));
+      await resp.stream.drain<void>();
+      return resp.statusCode == 200 || resp.statusCode == 207;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Uploadt één foto direct naar `<doelmap>/<rootFolderName>/foto's/`.
+  /// Bedoeld om tijdens het fotograferen op de achtergrond te draaien.
+  /// Geeft true bij succes (of als het bestand er al staat).
+  static Future<bool> uploadSinglePhoto({
+    required String rootFolderName,
+    required File file,
+  }) async {
+    final cfg = await loadConfig();
+    if (cfg == null) return false;
+    final webdavRoot = _webdavRoot(cfg);
+    final safeRoot = _normalizePath(rootFolderName);
+    final rootPath =
+        cfg.basePath.isEmpty ? safeRoot : '${cfg.basePath}/$safeRoot';
+    final fotoPath = "$rootPath/foto's";
+    try {
+      if (!_ensuredPaths.contains(fotoPath)) {
+        await _ensureFolder(cfg, webdavRoot, fotoPath);
+        _ensuredPaths.add(fotoPath);
+      }
+      final name = file.path.split('/').last;
+      final remote = '$fotoPath/$name';
+      if (await _fileExists(cfg, webdavRoot, remote)) return true;
+      await _putFile(cfg, webdavRoot, file, remote);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Maakt de dossiermap + standaard-submappen aan en uploadt de bestanden in
   /// de juiste submap. [filesBySubfolder] bv. {'EP': [xml, json, pdf...]}.
   static Future<NextcloudUploadResult> uploadDossier({
@@ -319,10 +370,17 @@ class NextcloudService {
 
       for (final entry in filesBySubfolder.entries) {
         final sub = sanitizeSegment(entry.key);
+        // Foto's die al geüpload zijn (bv. tijdens het fotograferen) overslaan.
+        final skipExisting = sub == "foto's";
         for (final file in entry.value) {
           final name = file.path.split('/').last;
+          final remote = '$rootPath/$sub/$name';
           try {
-            await _putFile(cfg, webdavRoot, file, '$rootPath/$sub/$name');
+            if (skipExisting && await _fileExists(cfg, webdavRoot, remote)) {
+              uploaded++;
+              continue;
+            }
+            await _putFile(cfg, webdavRoot, file, remote);
             uploaded++;
           } catch (_) {
             failed.add(name);

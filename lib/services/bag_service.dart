@@ -375,6 +375,20 @@ class BagData {
     return value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
   }
 
+  /// Dossier-mapnaam voor Nextcloud: "postcode straat huisnummer(toevoeging)".
+  /// Postcode voorop (sorteren), daarachter het herkenbare adres.
+  String getNextcloudDossierName() {
+    final pc = postcode.trim();
+    final straat = (adres ?? '').trim();
+    final hnr = (huisnummer ?? '').trim();
+    final toev = (huisletterHuisnummertoevoeging ?? '').trim();
+    final nummer = [hnr, toev].where((s) => s.isNotEmpty).join('');
+    final adresDeel = [straat, nummer].where((s) => s.isNotEmpty).join(' ').trim();
+    final name = [pc, adresDeel].where((s) => s.isNotEmpty).join(' ').trim();
+    final value = name.isEmpty ? getFolderName() : name;
+    return value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+  }
+
   String _normalizedPostcodeForFiles() {
     final value = postcode.replaceAll(RegExp(r'\s+'), '').toUpperCase();
     if (value.isEmpty || value == '-' || value == 'UNKNOWN') {

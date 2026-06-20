@@ -21,18 +21,19 @@ class DossierPhotoStore {
   }
 
   /// Bewaar een kopie van [sourcePath] onder de gegeven adres-prefix.
-  static Future<void> savePhoto({
+  /// Geeft het opgeslagen bestand terug (of null als de bron niet bestaat).
+  static Future<File?> savePhoto({
     required String sourcePath,
     required String prefix,
     required int sequenceNumber,
   }) async {
     final source = File(sourcePath);
-    if (!await source.exists()) return;
+    if (!await source.exists()) return null;
     final dir = await _dirForPrefix(prefix);
     final extMatch = RegExp(r'\.[A-Za-z0-9]+$').firstMatch(sourcePath);
     final ext = extMatch?.group(0)?.toLowerCase() ?? '.jpg';
     final name = '${_safe(prefix)}_${sequenceNumber.toString().padLeft(4, '0')}$ext';
-    await source.copy('${dir.path}/$name');
+    return source.copy('${dir.path}/$name');
   }
 
   /// Alle lokaal bewaarde foto's voor deze adres-prefix (op naam gesorteerd).

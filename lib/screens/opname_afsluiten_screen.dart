@@ -375,17 +375,8 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
   }
 
   /// Root-mapnaam op Nextcloud: "postcode straat huisnummer(toevoeging)".
-  /// Postcode voorop (sorteren/groeperen), daarachter het herkenbare adres.
-  String _nextcloudRootFolderName(BagData bagData) {
-    final postcode = bagData.postcode.trim();
-    final straat = (bagData.adres ?? '').trim();
-    final huisnummer = (bagData.huisnummer ?? '').trim();
-    final toevoeging = (bagData.huisletterHuisnummertoevoeging ?? '').trim();
-    final nummer = [huisnummer, toevoeging].where((s) => s.isNotEmpty).join('');
-    final adres = [straat, nummer].where((s) => s.isNotEmpty).join(' ').trim();
-    final name = [postcode, adres].where((s) => s.isNotEmpty).join(' ').trim();
-    return name.isEmpty ? bagData.getFolderName() : name;
-  }
+  String _nextcloudRootFolderName(BagData bagData) =>
+      bagData.getNextcloudDossierName();
 
   /// Handmatige upload naar Nextcloud (export -> EP/) met een duidelijk
   /// resultaatvenster, los van de mail-stap.
