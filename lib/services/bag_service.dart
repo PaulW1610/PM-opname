@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
+
+import '../models/opdrachtgever.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 String? _findFirstValueByKeys(dynamic data, List<String> keys) {
@@ -159,6 +161,12 @@ class BagData {
   /// Longitude in WGS84 if available from BAG payload.
   final double? longitude;
 
+  /// Gekoppelde opdrachtgever (momentopname), indien gekozen bij het dossier.
+  final Opdrachtgever? opdrachtgever;
+
+  /// Opdrachtnummer voor deze opname (verschilt per opdracht).
+  final String? opdrachtnummer;
+
   /// Create BAG data model.
   BagData({
     this.adres,
@@ -174,6 +182,8 @@ class BagData {
     this.gebruiksdoel,
     this.latitude,
     this.longitude,
+    this.opdrachtgever,
+    this.opdrachtnummer,
   });
 
   /// Create from JSON response.
@@ -308,6 +318,11 @@ class BagData {
       gebruiksdoel: json['gebruiksdoel']?.toString(),
       latitude: latitude,
       longitude: longitude,
+      opdrachtgever: json['opdrachtgever'] is Map
+          ? Opdrachtgever.fromSnapshotJson(
+              Map<String, dynamic>.from(json['opdrachtgever'] as Map))
+          : null,
+      opdrachtnummer: json['opdrachtnummer']?.toString(),
     );
   }
 
@@ -325,6 +340,8 @@ class BagData {
     String? gebruiksdoel,
     double? latitude,
     double? longitude,
+    Opdrachtgever? opdrachtgever,
+    String? opdrachtnummer,
   }) {
     return BagData(
       adres: adres ?? this.adres,
@@ -341,6 +358,8 @@ class BagData {
       gebruiksdoel: gebruiksdoel ?? this.gebruiksdoel,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
+      opdrachtgever: opdrachtgever ?? this.opdrachtgever,
+      opdrachtnummer: opdrachtnummer ?? this.opdrachtnummer,
     );
   }
 

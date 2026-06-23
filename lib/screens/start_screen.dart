@@ -7,9 +7,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 import '../config/app_secrets.dart';
+import '../models/opdrachtgever.dart';
 import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
 import '../services/location_service.dart';
+import '../services/opdrachtgever_service.dart';
 import '../theme/brand.dart';
 import 'beslisschemas_screen.dart';
 import 'instellingen_screen.dart';
@@ -45,11 +47,109 @@ class _StartScreenState extends State<StartScreen> {
   final TextEditingController _manualHuisnummerController = TextEditingController();
   List<BagData> _savedDossiers = const <BagData>[];
 
+  List<Opdrachtgever> _opdrachtgevers = const <Opdrachtgever>[];
+  Opdrachtgever? _selectedOpdrachtgever;
+  final TextEditingController _opdrachtnummerController =
+      TextEditingController();
+  bool _syncingOpdrachtgevers = false;
+
   @override
   void initState() {
     super.initState();
     _loadSavedDossiers();
     _loadLookupSettings();
+    _loadOpdrachtgevers();
+    _syncOpdrachtgevers(silent: true);
+  }
+
+  Future<void> _loadOpdrachtgevers() async {
+    final lijst = await OpdrachtgeverService.loadActive();
+    if (!mounted) return;
+    setState(() {
+      _opdrachtgevers = lijst;
+      // Houd de selectie geldig; val terug op de bijgewerkte versie indien aanwezig.
+      final sel = _selectedOpdrachtgever;
+      if (sel != null) {
+        final match =
+            lijst.where((o) => o.id == sel.id).cast<Opdrachtgever?>();
+        _selectedOpdrachtgever = match.isNotEmpty ? match.first : sel;
+      }
+    });
+  }
+
+  Future<void> _syncOpdrachtgevers({bool silent = false}) async {
+    if (_syncingOpdrachtgevers) return;
+    setState(() => _syncingOpdrachtgevers = true);
+    final result = await OpdrachtgeverService.syncWithNextcloud();
+    if (!mounted) {
+      _syncingOpdrachtgevers = false;
+      return;
+    }
+    setState(() => _syncingOpdrachtgevers = false);
+    await _loadOpdrachtgevers();
+    if (!silent && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message)),
+      );
+    }
+  }
+
+  /// Past de gekozen opdrachtgever + opdrachtnummer toe op een dossier.
+  BagData _withOpdrachtgever(BagData data) {
+    final nummer = _opdrachtnummerController.text.trim();
+    return data.copyWith(
+      opdrachtgever: _selectedOpdrachtgever,
+      opdrachtnummer: nummer.isEmpty ? null : nummer,
+    );
+  }
+
+  void _onSelectOpdrachtgever(String? id) {
+    setState(() {
+      if (id == null) {
+        _selectedOpdrachtgever = null;
+        return;
+      }
+      final match =
+          _opdrachtgevers.where((o) => o.id == id).cast<Opdrachtgever?>();
+      _selectedOpdrachtgever = match.isNotEmpty ? match.first : null;
+    });
+  }
+
+  Future<void> _nieuweOpdrachtgever() async {
+    final result = await showDialog<_OpdrachtgeverDialogResult>(
+      context: context,
+      builder: (_) => const _OpdrachtgeverDialog(),
+    );
+    if (result == null || result.opdrachtgever == null) return;
+    final saved = await OpdrachtgeverService.addOrUpdate(
+      result.opdrachtgever!.copyWith(id: OpdrachtgeverService.generateId()),
+    );
+    await _loadOpdrachtgevers();
+    if (!mounted) return;
+    setState(() => _selectedOpdrachtgever = saved);
+    _syncOpdrachtgevers(silent: true);
+  }
+
+  Future<void> _bewerkOpdrachtgever() async {
+    final huidig = _selectedOpdrachtgever;
+    if (huidig == null) return;
+    final result = await showDialog<_OpdrachtgeverDialogResult>(
+      context: context,
+      builder: (_) => _OpdrachtgeverDialog(bestaande: huidig),
+    );
+    if (result == null) return;
+    if (result.verwijderen) {
+      await OpdrachtgeverService.softDelete(huidig.id);
+      await _loadOpdrachtgevers();
+      if (!mounted) return;
+      setState(() => _selectedOpdrachtgever = null);
+    } else if (result.opdrachtgever != null) {
+      final saved = await OpdrachtgeverService.addOrUpdate(result.opdrachtgever!);
+      await _loadOpdrachtgevers();
+      if (!mounted) return;
+      setState(() => _selectedOpdrachtgever = saved);
+    }
+    _syncOpdrachtgevers(silent: true);
   }
 
   Future<void> _loadLookupSettings() async {
@@ -120,6 +220,9 @@ class _StartScreenState extends State<StartScreen> {
               'bagIdentificatie': item.bagIdentificatie,
               'bagPandId': item.bagPandId,
               'oorspronkelijkBouwjaar': item.oorspronkelijkBouwjaar,
+              if (item.opdrachtgever != null)
+                'opdrachtgever': item.opdrachtgever!.toSnapshotJson(),
+              'opdrachtnummer': item.opdrachtnummer,
             },
           )
           .toList(growable: false),
@@ -132,9 +235,39 @@ class _StartScreenState extends State<StartScreen> {
     });
   }
 
+  /// Herstelt de eerder gekozen opdrachtgever + opdrachtnummer voor dit adres.
+  ///
+  /// Gebruikt eerst de opdrachtgever die het dossier zelf draagt (bv. een
+  /// opgeslagen project); valt anders terug op een opgeslagen project met
+  /// hetzelfde adres. Wist nooit een al gekozen opdrachtgever/nummer.
+  void _restoreOpdrachtgeverForAddress(BagData data) {
+    Opdrachtgever? og = data.opdrachtgever;
+    String? nummer = data.opdrachtnummer;
+    if (og == null) {
+      final key = _candidateIdentityKey(data);
+      for (final d in _savedDossiers) {
+        if (_candidateIdentityKey(d) == key && d.opdrachtgever != null) {
+          og = d.opdrachtgever;
+          nummer = d.opdrachtnummer;
+          break;
+        }
+      }
+    }
+    if (og != null) {
+      final ogId = og.id;
+      final match =
+          _opdrachtgevers.where((o) => o.id == ogId).cast<Opdrachtgever?>();
+      _selectedOpdrachtgever = match.isNotEmpty ? match.first : og;
+    }
+    if ((nummer ?? '').trim().isNotEmpty) {
+      _opdrachtnummerController.text = nummer!.trim();
+    }
+  }
+
   Future<void> _selectSavedDossier(BagData bagData) async {
     final savedCount = await _loadPhotoCountForAddress(bagData);
     if (!mounted) return;
+    _restoreOpdrachtgeverForAddress(bagData);
     setState(() {
       _bagData = bagData;
       _bagCandidates = <BagData>[bagData, ..._bagCandidates]
@@ -157,7 +290,7 @@ class _StartScreenState extends State<StartScreen> {
       );
       return;
     }
-    await _saveDossierAddress(_bagData!);
+    await _saveDossierAddress(_withOpdrachtgever(_bagData!));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Adres opgeslagen: ${_bagData!.getFolderName()}')),
@@ -206,6 +339,9 @@ class _StartScreenState extends State<StartScreen> {
               'bagIdentificatie': item.bagIdentificatie,
               'bagPandId': item.bagPandId,
               'oorspronkelijkBouwjaar': item.oorspronkelijkBouwjaar,
+              if (item.opdrachtgever != null)
+                'opdrachtgever': item.opdrachtgever!.toSnapshotJson(),
+              'opdrachtnummer': item.opdrachtnummer,
             },
           )
           .toList(growable: false),
@@ -729,6 +865,7 @@ class _StartScreenState extends State<StartScreen> {
   Future<void> _selectBagCandidate(BagData candidate) async {
     final savedCount = await _loadPhotoCountForAddress(candidate);
     if (!mounted) return;
+    _restoreOpdrachtgeverForAddress(candidate);
     setState(() {
       _bagData = candidate;
       _lastPhotoCount = savedCount;
@@ -1181,16 +1318,17 @@ class _StartScreenState extends State<StartScreen> {
       return;
     }
 
+    final effectief = _withOpdrachtgever(_bagData!);
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => OpnameAfsluitenScreen(
-          bagData: _bagData!,
-          dossierName: _bagData!.getFolderName(),
+          bagData: effectief,
+          dossierName: effectief.getFolderName(),
         ),
       ),
     );
     if (!mounted || saved != true) return;
-    await _saveDossierAddress(_bagData!);
+    await _saveDossierAddress(effectief);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Adres opgeslagen voor later: ${_bagData!.getFolderName()}')),
@@ -1318,6 +1456,11 @@ class _StartScreenState extends State<StartScreen> {
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: _buildOpdrachtgeverSection(),
               ),
               const SizedBox(height: 20),
               Padding(
@@ -1473,6 +1616,112 @@ class _StartScreenState extends State<StartScreen> {
     );
   }
 
+  /// Blok om de opdrachtgever te kiezen/beheren + het opdrachtnummer in te
+  /// voeren. De keuze reist mee met het dossier (JSON/XML/PDF).
+  Widget _buildOpdrachtgeverSection() {
+    final items = <Opdrachtgever>[..._opdrachtgevers];
+    final sel = _selectedOpdrachtgever;
+    // Toon een gekozen (bv. uit een opgeslagen dossier) ook als die niet meer
+    // in de actieve lijst staat.
+    if (sel != null && !items.any((o) => o.id == sel.id)) {
+      items.insert(0, sel);
+    }
+
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.business, size: 20, color: BrandColors.navy),
+                const SizedBox(width: 8),
+                Text(
+                  'Opdrachtgever',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const Spacer(),
+                _syncingOpdrachtgevers
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : IconButton(
+                        tooltip: 'Synchroniseer met Nextcloud',
+                        icon: const Icon(Icons.sync),
+                        onPressed: () => _syncOpdrachtgevers(),
+                      ),
+              ],
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value: sel?.id,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Kies opdrachtgever',
+                      border: OutlineInputBorder(),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: null,
+                        child: Text('— Geen —'),
+                      ),
+                      for (final o in items)
+                        DropdownMenuItem<String>(
+                          value: o.id,
+                          child: Text(
+                            o.displayLabel,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: _onSelectOpdrachtgever,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Nieuwe opdrachtgever',
+                  icon: const Icon(Icons.add_circle_outline),
+                  color: BrandColors.navy,
+                  onPressed: _nieuweOpdrachtgever,
+                ),
+                IconButton(
+                  tooltip: 'Bewerk/verwijder',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: sel == null ? null : _bewerkOpdrachtgever,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: TextField(
+                controller: _opdrachtnummerController,
+                decoration: const InputDecoration(
+                  labelText: 'Opdrachtnummer (deze opname)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Uniform rooster van vierkante huisstijl-knoppen voor de hoofdacties.
   ///
   /// Oranje = belangrijkste acties (adres ophalen, naar camera); marineblauw =
@@ -1538,7 +1787,146 @@ class _StartScreenState extends State<StartScreen> {
     _manualAddressController.dispose();
     _manualPostcodeController.dispose();
     _manualHuisnummerController.dispose();
+    _opdrachtnummerController.dispose();
     super.dispose();
+  }
+}
+
+/// Resultaat van de opdrachtgever-dialoog: een (gewijzigde) opdrachtgever, of
+/// een verzoek tot verwijderen.
+class _OpdrachtgeverDialogResult {
+  /// De ingevoerde/gewijzigde opdrachtgever (null bij verwijderen).
+  final Opdrachtgever? opdrachtgever;
+
+  /// True als de gebruiker op verwijderen tikte.
+  final bool verwijderen;
+
+  const _OpdrachtgeverDialogResult({this.opdrachtgever, this.verwijderen = false});
+}
+
+/// Dialoog om een opdrachtgever toe te voegen of te bewerken.
+class _OpdrachtgeverDialog extends StatefulWidget {
+  const _OpdrachtgeverDialog({this.bestaande});
+
+  /// Bestaande opdrachtgever (bewerken) of null (nieuw).
+  final Opdrachtgever? bestaande;
+
+  @override
+  State<_OpdrachtgeverDialog> createState() => _OpdrachtgeverDialogState();
+}
+
+class _OpdrachtgeverDialogState extends State<_OpdrachtgeverDialog> {
+  late final TextEditingController _naam;
+  late final TextEditingController _contact;
+  late final TextEditingController _email;
+  late final TextEditingController _tel;
+
+  @override
+  void initState() {
+    super.initState();
+    final b = widget.bestaande;
+    _naam = TextEditingController(text: b?.naam ?? '');
+    _contact = TextEditingController(text: b?.contactpersoon ?? '');
+    _email = TextEditingController(text: b?.email ?? '');
+    _tel = TextEditingController(text: b?.telefoon ?? '');
+  }
+
+  @override
+  void dispose() {
+    _naam.dispose();
+    _contact.dispose();
+    _email.dispose();
+    _tel.dispose();
+    super.dispose();
+  }
+
+  void _opslaan() {
+    final naam = _naam.text.trim();
+    if (naam.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Naam is verplicht.')),
+      );
+      return;
+    }
+    final b = widget.bestaande;
+    final result = Opdrachtgever(
+      id: b?.id ?? '',
+      naam: naam,
+      contactpersoon: _contact.text.trim(),
+      email: _email.text.trim(),
+      telefoon: _tel.text.trim(),
+      gewijzigdOp: DateTime.now().toUtc(),
+    );
+    Navigator.of(context)
+        .pop(_OpdrachtgeverDialogResult(opdrachtgever: result));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bewerken = widget.bestaande != null;
+    return AlertDialog(
+      title: Text(bewerken ? 'Opdrachtgever bewerken' : 'Nieuwe opdrachtgever'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _naam,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Naam *',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _contact,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Contactpersoon',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'E-mail',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _tel,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Telefoon',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        if (bewerken)
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(
+              const _OpdrachtgeverDialogResult(verwijderen: true),
+            ),
+            child: const Text('Verwijderen',
+                style: TextStyle(color: Colors.red)),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annuleren'),
+        ),
+        FilledButton(
+          onPressed: _opslaan,
+          child: const Text('Opslaan'),
+        ),
+      ],
+    );
   }
 }
 

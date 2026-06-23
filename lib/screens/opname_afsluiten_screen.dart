@@ -269,6 +269,8 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
             'identificatie': (bagData.bagIdentificatie ?? '').trim(),
             'pandId': (bagData.bagPandId ?? '').trim(),
           },
+          'opdrachtgever': bagData.opdrachtgever?.toSnapshotJson(),
+          'opdrachtnummer': (bagData.opdrachtnummer ?? '').trim(),
           'bouwjaar': bouwjaar,
           'bouwjaarBron': _resolveBouwjaarBron(),
           'gebouwhoogteMeter': _gebouwhoogte,
@@ -667,6 +669,21 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
                       'Dossier: ${widget.dossierName}',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
+                    if (widget.bagData.opdrachtgever != null ||
+                        (widget.bagData.opdrachtnummer ?? '').trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        [
+                          if (widget.bagData.opdrachtgever != null)
+                            'Opdrachtgever: ${widget.bagData.opdrachtgever!.naam}',
+                          if ((widget.bagData.opdrachtnummer ?? '')
+                              .trim()
+                              .isNotEmpty)
+                            'Opdrachtnr: ${widget.bagData.opdrachtnummer!.trim()}',
+                        ].join('   •   '),
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Text(
                       'BAG PDF status v$_bagPdfBuildVersion: $_bagPdfStatus',

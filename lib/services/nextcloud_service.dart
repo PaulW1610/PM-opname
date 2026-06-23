@@ -406,6 +406,60 @@ class NextcloudService {
       targetUrl: targetUrl,
     );
   }
+
+  /// Downloadt een tekstbestand onder de doelmap (GET).
+  ///
+  /// [relativePath] is relatief t.o.v. de ingestelde doelmap (basePath),
+  /// bv. "Opdrachtgevers.csv". Geeft de inhoud terug, of null als het bestand
+  /// niet bestaat / niet leesbaar is. Gooit nooit.
+  static Future<String?> downloadText(String relativePath) async {
+    final cfg = await loadConfig();
+    if (cfg == null) return null;
+    final webdavRoot = _webdavRoot(cfg);
+    final safe = _normalizePath(relativePath);
+    final remote = cfg.basePath.isEmpty ? safe : '${cfg.basePath}/$safe';
+    try {
+      final uri = Uri.parse('$webdavRoot/${_encodePath(remote)}');
+      final req = http.Request('GET', uri);
+      req.headers.addAll(_authHeaders(cfg));
+      final resp =
+          await http.Client().send(req).timeout(const Duration(seconds: 30));
+      final body = await resp.stream.bytesToString();
+      return resp.statusCode == 200 ? body : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Uploadt (overschrijft) een tekstbestand onder de doelmap (PUT) en maakt de
+  /// bovenliggende map aan indien nodig. Geeft true bij succes.
+  static Future<bool> uploadText(String relativePath, String content) async {
+    final cfg = await loadConfig();
+    if (cfg == null) return false;
+    final webdavRoot = _webdavRoot(cfg);
+    final safe = _normalizePath(relativePath);
+    final remote = cfg.basePath.isEmpty ? safe : '${cfg.basePath}/$safe';
+    try {
+      final parent = remote.contains('/')
+          ? remote.substring(0, remote.lastIndexOf('/'))
+          : '';
+      if (parent.isNotEmpty) {
+        await _ensureFolder(cfg, webdavRoot, parent);
+      }
+      final uri = Uri.parse('$webdavRoot/${_encodePath(remote)}');
+      final req = http.Request('PUT', uri)..bodyBytes = utf8.encode(content);
+      req.headers.addAll(_authHeaders(cfg));
+      req.headers['Content-Type'] = 'text/csv; charset=utf-8';
+      final resp =
+          await http.Client().send(req).timeout(const Duration(seconds: 30));
+      await resp.stream.drain<void>();
+      return resp.statusCode == 201 ||
+          resp.statusCode == 204 ||
+          resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
 }
 
 class NextcloudConfig {
