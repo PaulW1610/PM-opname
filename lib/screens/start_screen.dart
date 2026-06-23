@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geocoding/geocoding.dart';
@@ -1840,6 +1841,54 @@ class _OpdrachtgeverDialogState extends State<_OpdrachtgeverDialog> {
     super.dispose();
   }
 
+  /// Open de iOS-contactenkiezer en vul de velden in op basis van de keuze.
+  Future<void> _kiesUitContacten() async {
+    try {
+      final picked = await FlutterContacts.openExternalPick();
+      if (picked == null) return; // geannuleerd
+      var contact = picked;
+      // Probeer de volledige gegevens op te halen (eerst toestemming vragen).
+      try {
+        if (await FlutterContacts.requestPermission(readonly: true)) {
+          final full = await FlutterContacts.getContact(
+            picked.id,
+            withProperties: true,
+            withAccounts: false,
+            withThumbnail: false,
+            withPhoto: false,
+          );
+          if (full != null) contact = full;
+        }
+      } catch (_) {}
+
+      if (!mounted) return;
+      final org = contact.organizations.isNotEmpty
+          ? contact.organizations.first.company.trim()
+          : '';
+      final volledigeNaam = contact.displayName.trim();
+      final email =
+          contact.emails.isNotEmpty ? contact.emails.first.address.trim() : '';
+      final tel =
+          contact.phones.isNotEmpty ? contact.phones.first.number.trim() : '';
+
+      setState(() {
+        if (org.isNotEmpty) {
+          _naam.text = org;
+          _contact.text = volledigeNaam;
+        } else {
+          _naam.text = volledigeNaam;
+        }
+        if (email.isNotEmpty) _email.text = email;
+        if (tel.isNotEmpty) _tel.text = tel;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Contact kiezen mislukt: $e')),
+      );
+    }
+  }
+
   void _opslaan() {
     final naam = _naam.text.trim();
     if (naam.isEmpty) {
@@ -1870,6 +1919,15 @@ class _OpdrachtgeverDialogState extends State<_OpdrachtgeverDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.contacts_outlined),
+                label: const Text('Kies uit contacten'),
+                onPressed: _kiesUitContacten,
+              ),
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _naam,
               textCapitalization: TextCapitalization.words,

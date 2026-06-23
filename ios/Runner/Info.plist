@@ -55,6 +55,8 @@
 	<string>LaunchScreen</string>
 	<key>NSCameraUsageDescription</key>
 	<string>We gebruiken de camera om foto's te maken voor jouw collecties.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>We gebruiken je contacten zodat je een opdrachtgever rechtstreeks uit je adresboek kunt kiezen.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>We gebruiken Foto's om afbeeldingen in een adres-album op te slaan.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
