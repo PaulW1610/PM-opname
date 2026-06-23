@@ -17,6 +17,7 @@ import '../services/opmerkingen_formulier_service.dart';
 import '../services/overige_ruimte_beslisschema_service.dart';
 import '../services/three_d_bag_service.dart';
 import '../services/xml_export_service.dart';
+import '../theme/brand.dart';
 import '../widgets/pm_branding_header.dart';
 
 class OpnameAfsluitenScreen extends StatefulWidget {
@@ -518,6 +519,21 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
           pw.Text('Postcode: ${bagData.postcode}'),
           pw.Text('Plaats: ${bagData.plaatsnaam}'),
           pw.Text('Bouwjaar: $bouwjaar'),
+          if (bagData.opdrachtgever != null ||
+              (bagData.opdrachtnummer ?? '').trim().isNotEmpty) ...[
+            pw.SizedBox(height: 8),
+            if (bagData.opdrachtgever != null)
+              pw.Text('Opdrachtgever: ${bagData.opdrachtgever!.naam}'),
+            if ((bagData.opdrachtgever?.contactpersoon ?? '').trim().isNotEmpty)
+              pw.Text(
+                  'Contactpersoon: ${bagData.opdrachtgever!.contactpersoon}'),
+            if ((bagData.opdrachtgever?.email ?? '').trim().isNotEmpty)
+              pw.Text('E-mail: ${bagData.opdrachtgever!.email}'),
+            if ((bagData.opdrachtgever?.telefoon ?? '').trim().isNotEmpty)
+              pw.Text('Telefoon: ${bagData.opdrachtgever!.telefoon}'),
+            if ((bagData.opdrachtnummer ?? '').trim().isNotEmpty)
+              pw.Text('Opdrachtnummer: ${bagData.opdrachtnummer!.trim()}'),
+          ],
           pw.SizedBox(height: 12),
           pw.Text('Vloer: $_vloerType'),
           pw.Text('Ventilatie: $_ventilatieType'),
@@ -651,6 +667,73 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     );
   }
 
+  /// Alleen-lezen kaart met de gekoppelde opdrachtgever + opdrachtnummer.
+  Widget _buildOpdrachtgeverInfo() {
+    final og = widget.bagData.opdrachtgever;
+    final nummer = (widget.bagData.opdrachtnummer ?? '').trim();
+    if (og == null && nummer.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final regels = <Widget>[];
+    void regel(String label, String? waarde) {
+      final v = (waarde ?? '').trim();
+      if (v.isEmpty) return;
+      regels.add(Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: RichText(
+          text: TextSpan(
+            style: Theme.of(context).textTheme.bodyMedium,
+            children: [
+              TextSpan(
+                text: '$label: ',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              TextSpan(text: v),
+            ],
+          ),
+        ),
+      ));
+    }
+
+    if (og != null) {
+      regel('Naam', og.naam);
+      regel('Contactpersoon', og.contactpersoon);
+      regel('E-mail', og.email);
+      regel('Telefoon', og.telefoon);
+    }
+    regel('Opdrachtnummer', nummer);
+
+    return Card(
+      elevation: 0,
+      color: const Color(0xFFEFF2F8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.business, size: 18, color: BrandColors.navy),
+                const SizedBox(width: 6),
+                Text(
+                  'Opdrachtgever',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            ...regels,
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -669,21 +752,8 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
                       'Dossier: ${widget.dossierName}',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    if (widget.bagData.opdrachtgever != null ||
-                        (widget.bagData.opdrachtnummer ?? '').trim().isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        [
-                          if (widget.bagData.opdrachtgever != null)
-                            'Opdrachtgever: ${widget.bagData.opdrachtgever!.naam}',
-                          if ((widget.bagData.opdrachtnummer ?? '')
-                              .trim()
-                              .isNotEmpty)
-                            'Opdrachtnr: ${widget.bagData.opdrachtnummer!.trim()}',
-                        ].join('   •   '),
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
+                    const SizedBox(height: 8),
+                    _buildOpdrachtgeverInfo(),
                     const SizedBox(height: 8),
                     Text(
                       'BAG PDF status v$_bagPdfBuildVersion: $_bagPdfStatus',
