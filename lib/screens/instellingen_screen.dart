@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/app_settings_service.dart';
+import '../services/blueprint_api_service.dart';
 import '../services/nextcloud_service.dart';
 
 class InstellingenScreen extends StatefulWidget {
@@ -24,6 +25,11 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
   final TextEditingController _ncLinkController = TextEditingController();
   final TextEditingController _ncLinkPassController = TextEditingController();
 
+  final TextEditingController _bpBaseUrlController = TextEditingController();
+  final TextEditingController _bpNamespaceController = TextEditingController();
+  final TextEditingController _bpUserController = TextEditingController();
+  final TextEditingController _bpPassController = TextEditingController();
+
   NextcloudMode _ncMode = NextcloudMode.link;
 
   bool _isLoading = true;
@@ -32,6 +38,10 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
   bool _ncBusy = false;
   String? _ncStatus;
   bool _ncStatusOk = false;
+  bool _bpBusy = false;
+  bool _bpConfigured = false;
+  bool _bpStatusOk = false;
+  String? _bpStatus;
 
   @override
   void initState() {
@@ -42,6 +52,7 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
   Future<void> _load() async {
     final settings = await AppSettingsService.loadSettings();
     final ncConfig = await NextcloudService.loadConfig();
+    final bpConfig = await BlueprintApiService.loadConfig();
     if (!mounted) {
       return;
     }
@@ -61,7 +72,72 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
         _ncBaseController.text = ncConfig.basePath;
         _nextcloudConfigured = true;
       }
+      _bpBaseUrlController.text = bpConfig.baseWpJsonUrl;
+      _bpNamespaceController.text = bpConfig.namespace;
+      _bpUserController.text = bpConfig.username;
+      _bpPassController.text = bpConfig.applicationPassword;
+      _bpConfigured = bpConfig.hasCredentials;
       _isLoading = false;
+    });
+  }
+
+  Future<void> _saveAndTestBlueprintApi() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final baseUrl = _bpBaseUrlController.text.trim();
+    final namespace = _bpNamespaceController.text.trim();
+    final username = _bpUserController.text.trim();
+    final appPassword = _bpPassController.text.trim();
+    if (baseUrl.isEmpty || namespace.isEmpty || username.isEmpty || appPassword.isEmpty) {
+      setState(() {
+        _bpStatus = 'Vul basis-URL, namespace, gebruikersnaam en app-wachtwoord in.';
+        _bpStatusOk = false;
+      });
+      return;
+    }
+    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+      setState(() {
+        _bpStatus = 'Basis-URL moet starten met http:// of https://';
+        _bpStatusOk = false;
+      });
+      return;
+    }
+    setState(() {
+      _bpBusy = true;
+      _bpStatus = null;
+    });
+    await BlueprintApiService.saveConfig(
+      BlueprintApiConfig(
+        baseWpJsonUrl: baseUrl,
+        namespace: namespace,
+        username: username,
+        applicationPassword: appPassword,
+      ),
+    );
+    final ok = await BlueprintApiService.testCredentials();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _bpBusy = false;
+      _bpConfigured = ok;
+      _bpStatusOk = ok;
+      _bpStatus = ok
+          ? 'Verbonden! Beveiligde Blueprint-endpoints zijn beschikbaar.'
+          : 'Authenticatie mislukt. Controleer gebruikersnaam en app-wachtwoord.';
+    });
+  }
+
+  Future<void> _disconnectBlueprintApi() async {
+    await BlueprintApiService.clearCredentials();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _bpUserController.clear();
+      _bpPassController.clear();
+      _bpConfigured = false;
+      _bpStatusOk = false;
+      _bpStatus = 'Blueprint API-credentials verwijderd.';
     });
   }
 
@@ -182,6 +258,10 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
     _ncLinkController.dispose();
     _ncLinkPassController.dispose();
     _ncBaseController.dispose();
+    _bpBaseUrlController.dispose();
+    _bpNamespaceController.dispose();
+    _bpUserController.dispose();
+    _bpPassController.dispose();
     super.dispose();
   }
 
@@ -403,6 +483,102 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                         icon: const Icon(Icons.link_off),
                         label: const Text('Nextcloud verbreken'),
                         onPressed: _ncBusy ? null : _disconnectNextcloud,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Blueprint API (websitekoppeling)',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        _bpConfigured ? Icons.check_circle : Icons.cloud_off,
+                        color: _bpConfigured ? Colors.green : Colors.grey,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(_bpConfigured ? 'Verbonden' : 'Niet verbonden'),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _bpBaseUrlController,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'WP JSON basis-URL',
+                      hintText: 'https://blueprint-data.nl/wp-json',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _bpNamespaceController,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Namespace',
+                      hintText: 'bd/v1',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _bpUserController,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Gebruikersnaam (WordPress)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _bpPassController,
+                    obscureText: true,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Application Password',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (_bpStatus != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _bpStatus!,
+                      style: TextStyle(
+                        color: _bpStatusOk
+                            ? Colors.green.shade800
+                            : Colors.orange.shade800,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: _bpBusy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.verified_user),
+                      label: Text(_bpBusy ? 'Testen…' : 'Opslaan & auth testen'),
+                      onPressed: _bpBusy ? null : _saveAndTestBlueprintApi,
+                    ),
+                  ),
+                  if (_bpConfigured) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.logout),
+                        label: const Text('Blueprint credentials verwijderen'),
+                        onPressed: _bpBusy ? null : _disconnectBlueprintApi,
                       ),
                     ),
                   ],

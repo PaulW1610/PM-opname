@@ -8,8 +8,10 @@ import 'dart:convert';
 import 'dart:math' as math;
 import '../config/app_secrets.dart';
 import '../models/opdrachtgever.dart';
+import '../models/wws_invoer_data.dart';
 import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
+import '../services/blueprint_api_service.dart';
 import '../services/location_service.dart';
 import '../services/opdrachtgever_service.dart';
 import '../theme/brand.dart';
@@ -17,6 +19,7 @@ import 'beslisschemas_screen.dart';
 import 'instellingen_screen.dart';
 import 'opname_afsluiten_screen.dart';
 import 'photo_selection_screen.dart';
+import 'wws_invoer_screen.dart';
 
 /// Start screen to fetch current location and building address.
 ///
@@ -52,6 +55,11 @@ class _StartScreenState extends State<StartScreen> {
   final TextEditingController _opdrachtnummerController =
       TextEditingController();
   bool _syncingOpdrachtgevers = false;
+  final Map<String, WwsInvoerData> _wwsPerAdres = <String, WwsInvoerData>{};
+  bool _wozBusy = false;
+  String _wozStatus = 'WOZ nog niet opgehaald';
+  int? _wozWaarde;
+  String _wozPeildatum = '';
 
   @override
   void initState() {
@@ -281,6 +289,7 @@ class _StartScreenState extends State<StartScreen> {
       });
       _lastPhotoCount = savedCount;
     });
+    await _lookupWozForAddress(bagData);
   }
 
   Future<void> _saveCurrentAddressForLater() async {
@@ -458,8 +467,85 @@ class _StartScreenState extends State<StartScreen> {
       _bagData = bagData;
       _bagCandidates = <BagData>[bagData];
       _lastPhotoCount = savedCount;
+      _wozStatus = 'WOZ niet beschikbaar zonder postcode + huisnummer.';
+      _wozWaarde = null;
+      _wozPeildatum = '';
     });
     await _proceedToPhotos();
+  }
+
+  Future<void> _lookupWozForAddress(BagData bagData) async {
+    final postcode = bagData.postcode.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+    final huisnummer = (bagData.huisnummer ?? '').trim();
+    final toevoeging = (bagData.huisletterHuisnummertoevoeging ?? '').trim();
+
+    if (postcode.isEmpty || postcode == '-' || huisnummer.isEmpty) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _wozBusy = false;
+        _wozStatus = 'WOZ niet beschikbaar: postcode/huisnummer ontbreekt.';
+        _wozWaarde = null;
+        _wozPeildatum = '';
+      });
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _wozBusy = true;
+      _wozStatus = 'WOZ ophalen...';
+    });
+
+    try {
+      final result = await BlueprintApiService.lookupWoz(
+        postcode: postcode,
+        huisnummer: huisnummer,
+        toevoeging: toevoeging,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _wozBusy = false;
+        _wozWaarde = result.waarde;
+        _wozPeildatum = result.peildatum;
+        switch (result.status) {
+          case WozStatus.ok:
+            _wozStatus = 'WOZ gevonden';
+            break;
+          case WozStatus.nietGevonden:
+            _wozStatus = result.melding.isEmpty
+                ? 'WOZ niet gevonden voor dit adres.'
+                : result.melding;
+            break;
+          case WozStatus.geenWoz:
+            _wozStatus = 'Geen openbare WOZ beschikbaar.';
+            break;
+          case WozStatus.fout:
+            _wozStatus = result.melding.isEmpty
+                ? 'WOZ lookup gaf een foutstatus.'
+                : result.melding;
+            break;
+          case WozStatus.onbekend:
+            _wozStatus = 'Onbekende WOZ-status ontvangen.';
+            break;
+        }
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _wozBusy = false;
+        _wozStatus = 'WOZ ophalen mislukt: $error';
+        _wozWaarde = null;
+        _wozPeildatum = '';
+      });
+    }
   }
 
   String _formatBagCandidate(BagData data) {
@@ -837,6 +923,9 @@ class _StartScreenState extends State<StartScreen> {
         _bagData = selected;
         _lastPhotoCount = photoCount;
       });
+      if (selected != null) {
+        await _lookupWozForAddress(selected);
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -870,6 +959,7 @@ class _StartScreenState extends State<StartScreen> {
       _bagData = candidate;
       _lastPhotoCount = savedCount;
     });
+    await _lookupWozForAddress(candidate);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Adres gekozen: ${candidate.getFolderName()}')),
     );
@@ -1253,6 +1343,7 @@ class _StartScreenState extends State<StartScreen> {
       });
 
       if (selectedBagData != null) {
+        await _lookupWozForAddress(selectedBagData);
         final savedCount = await _loadPhotoCountForAddress(selectedBagData);
         if (!mounted || fetchId != _activeFetchId) return;
         setState(() {
@@ -1319,11 +1410,14 @@ class _StartScreenState extends State<StartScreen> {
     }
 
     final effectief = _withOpdrachtgever(_bagData!);
+    final wwsData =
+        _wwsPerAdres[_candidateIdentityKey(_bagData!)] ?? const WwsInvoerData();
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => OpnameAfsluitenScreen(
           bagData: effectief,
           dossierName: effectief.getFolderName(),
+          initialWwsData: wwsData,
         ),
       ),
     );
@@ -1332,6 +1426,34 @@ class _StartScreenState extends State<StartScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Adres opgeslagen voor later: ${_bagData!.getFolderName()}')),
+    );
+  }
+
+  Future<void> _openWwsInvoer() async {
+    if (_bagData == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Haal eerst een adres op voor het dossier.')),
+      );
+      return;
+    }
+    final key = _candidateIdentityKey(_bagData!);
+    final initial = _wwsPerAdres[key] ?? const WwsInvoerData();
+    final result = await Navigator.of(context).push<WwsInvoerData>(
+      MaterialPageRoute(
+        builder: (_) => WwsInvoerScreen(
+          dossierNaam: _bagData!.getFolderName(),
+          initialData: initial,
+        ),
+      ),
+    );
+    if (!mounted || result == null) {
+      return;
+    }
+    setState(() {
+      _wwsPerAdres[key] = result;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('WWS bijgewerkt: ${result.korteStatus}')),
     );
   }
 
@@ -1409,6 +1531,20 @@ class _StartScreenState extends State<StartScreen> {
                         _bagData!.getFolderName(),
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      if (_wozBusy)
+                        const SizedBox(
+                          width: 160,
+                          child: LinearProgressIndicator(),
+                        ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _wozWaarde != null
+                            ? 'WOZ: EUR ${_wozWaarde.toString()} ${_wozPeildatum.isNotEmpty ? '(peildatum $_wozPeildatum)' : ''}'
+                            : _wozStatus,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     ],
                   ),
@@ -1758,6 +1894,11 @@ class _StartScreenState extends State<StartScreen> {
         icon: Icons.assignment_turned_in,
         label: 'Opname afsluiten',
         onPressed: (busy || !hasAddress) ? null : _openOpnameAfsluiten,
+      ),
+      BrandTileButton(
+        icon: Icons.calculate_outlined,
+        label: 'WWS',
+        onPressed: (busy || !hasAddress) ? null : _openWwsInvoer,
       ),
       BrandTileButton(
         icon: Icons.account_tree_outlined,

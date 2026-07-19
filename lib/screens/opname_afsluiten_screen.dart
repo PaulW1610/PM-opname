@@ -7,8 +7,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../config/app_secrets.dart';
+import '../models/wws_invoer_data.dart';
 import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
+import '../services/blueprint_api_service.dart';
 import '../services/nextcloud_service.dart';
 import '../services/dossier_photo_store.dart';
 import '../services/dossier_service.dart';
@@ -23,11 +25,13 @@ import '../widgets/pm_branding_header.dart';
 class OpnameAfsluitenScreen extends StatefulWidget {
   final BagData bagData;
   final String dossierName;
+  final WwsInvoerData initialWwsData;
 
   const OpnameAfsluitenScreen({
     Key? key,
     required this.bagData,
     required this.dossierName,
+    this.initialWwsData = const WwsInvoerData(),
   }) : super(key: key);
 
   @override
@@ -85,7 +89,13 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
   bool? _alleRamenHetzelfde;
   final Set<String> _aangeleverdeGegevens = <String>{};
   late final TextEditingController _bouwjaarController;
+  late final TextEditingController _huurActueelController;
+  late final TextEditingController _wwsPuntenController;
+  late final TextEditingController _wwsMaxHuurController;
+  late final TextEditingController _wwsWozWaardeController;
   BagData? _resolvedBagData;
+  late WwsInvoerData _wwsData;
+  bool _verhuurNaarObject = false;
   bool _isSaving = false;
   String _bagPdfStatus = 'Onbekend';
   String _gebouwhoogte = '';
@@ -104,6 +114,11 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     _bouwjaarController = TextEditingController(
       text: (widget.bagData.oorspronkelijkBouwjaar ?? '').trim(),
     );
+    _huurActueelController = TextEditingController();
+    _wwsData = widget.initialWwsData;
+    _wwsPuntenController = TextEditingController(text: _wwsData.punten);
+    _wwsMaxHuurController = TextEditingController(text: _wwsData.maxHuur);
+    _wwsWozWaardeController = TextEditingController(text: _wwsData.wozWaarde);
     _prefillInitialObjectData();
   }
 
@@ -115,7 +130,79 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
   @override
   void dispose() {
     _bouwjaarController.dispose();
+    _huurActueelController.dispose();
+    _wwsPuntenController.dispose();
+    _wwsMaxHuurController.dispose();
+    _wwsWozWaardeController.dispose();
     super.dispose();
+  }
+
+  Future<String> _syncNaarBlueprintObject(
+    BagData bagData, {
+    required File bewijsFoto,
+  }) async {
+    final config = await BlueprintApiService.loadConfig();
+    if (!config.hasCredentials) {
+      return 'Websitekoppeling overgeslagen: geen Blueprint credentials in Instellingen.';
+    }
+
+    final fields = <String, String>{
+      'titel': widget.dossierName,
+      if ((bagData.bagPandId ?? '').trim().isNotEmpty)
+        'pand': (bagData.bagPandId ?? '').trim(),
+      if (_wwsData.toepassen && _wwsData.punten.trim().isNotEmpty)
+        'wws_punten': _wwsPuntenController.text.trim(),
+      if (_wwsData.toepassen && _wwsData.maxHuur.trim().isNotEmpty)
+        'huur_max': _wwsMaxHuurController.text.trim(),
+      if (_wwsData.toepassen && _wwsData.wozWaarde.trim().isNotEmpty)
+        'woz': _wwsWozWaardeController.text.trim(),
+      'wws_actief': _wwsData.toepassen ? '1' : '0',
+    };
+
+    if (_wwsData.toepassen) {
+      final dossier = <String, dynamic>{
+        'bron': 'photo_organizer_app',
+        'type': 'handmatige_wws_invoer',
+        'punten': _wwsPuntenController.text.trim(),
+        'max_huur': _wwsMaxHuurController.text.trim(),
+        'woz_waarde': _wwsWozWaardeController.text.trim(),
+        'woz_jaar': _wwsData.wozJaar,
+        'ingevoerd_op': DateTime.now().toIso8601String(),
+      };
+      fields['wws_dossier'] = jsonEncode(dossier);
+    }
+
+    final created = await BlueprintApiService.createEntiteit(fields: fields);
+    final entiteitId = int.tryParse((created['id'] ?? '').toString());
+
+    if (entiteitId != null && await bewijsFoto.exists()) {
+      await BlueprintApiService.uploadDocument(
+        entiteitId: entiteitId,
+        bestand: bewijsFoto,
+        categorie: 'foto',
+      );
+    }
+
+    if (_verhuurNaarObject && entiteitId != null) {
+      final verhuurFields = <String, dynamic>{
+        if (_huurActueelController.text.trim().isNotEmpty)
+          'huur_actueel': _huurActueelController.text.trim(),
+        if (_wwsData.wozWaarde.trim().isNotEmpty)
+          'woz': _wwsWozWaardeController.text.trim(),
+      };
+      await BlueprintApiService.saveVerhuur(
+        entiteitId: entiteitId,
+        fields: verhuurFields,
+      );
+    }
+
+    final wwsInfo = _wwsData.toepassen
+        ? 'WWS gekoppeld${_wwsData.punten.trim().isNotEmpty ? ' (${_wwsData.punten.trim()} pt)' : ''}'
+        : 'WWS niet gekoppeld';
+    final verhuurInfo = _verhuurNaarObject
+        ? 'verhuur: ja'
+        : 'verhuur: nee';
+    return 'Object gekoppeld aan website. $wwsInfo, $verhuurInfo.';
   }
 
   void _dismissKeyboard() {
@@ -586,6 +673,20 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         aangeleverdeGegevens: _aangeleverdeGegevens.toList(growable: false),
       );
 
+      final bagData = _resolvedBagData ?? widget.bagData;
+      String websiteInfo;
+      try {
+        websiteInfo = await _syncNaarBlueprintObject(
+          bagData,
+          bewijsFoto: File(result.imageFilePath),
+        );
+      } on BlueprintApiException catch (error) {
+        websiteInfo =
+            'Websitekoppeling mislukt (${error.code}): ${error.message}';
+      } catch (error) {
+        websiteInfo = 'Websitekoppeling mislukt: $error';
+      }
+
       if (!mounted) return;
       await showDialog<void>(
         context: context,
@@ -595,7 +696,8 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
             child: Text(
               'Formulier opgeslagen in dossier en Foto\'s-album.\n\n'
               'Tekstbestand:\n${result.textFilePath}\n\n'
-              'PNG-bestand:\n${result.imageFilePath}',
+              'PNG-bestand:\n${result.imageFilePath}\n\n'
+              '$websiteInfo',
             ),
           ),
           actions: [
@@ -826,6 +928,115 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 16),
+            const Divider(thickness: 1.5),
+            const SizedBox(height: 8),
+            Text(
+              'Websitekoppeling object',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('WWS koppelen aan object'),
+              value: _wwsData.toepassen,
+              onChanged: _isSaving
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _wwsData = _wwsData.copyWith(toepassen: value);
+                      });
+                    },
+            ),
+            if (_wwsData.toepassen) ...[
+              TextField(
+                controller: _wwsPuntenController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (value) {
+                  _wwsData = _wwsData.copyWith(punten: value.trim());
+                },
+                decoration: const InputDecoration(
+                  labelText: 'WWS punten',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _wwsMaxHuurController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (value) {
+                  _wwsData = _wwsData.copyWith(maxHuur: value.trim());
+                },
+                decoration: const InputDecoration(
+                  labelText: 'Max huur (EUR)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _wwsWozWaardeController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (value) {
+                  _wwsData = _wwsData.copyWith(wozWaarde: value.trim());
+                },
+                decoration: const InputDecoration(
+                  labelText: 'WOZ waarde (EUR, optioneel)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: _wwsData.wozJaar,
+                items: BlueprintWwsContract.wozJaren
+                    .map(
+                      (jaar) => DropdownMenuItem<String>(
+                        value: jaar,
+                        child: Text(jaar),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: _isSaving
+                    ? null
+                    : (value) {
+                        if (value == null) {
+                          return;
+                        }
+                        setState(() {
+                          _wwsData = _wwsData.copyWith(wozJaar: value);
+                        });
+                      },
+                decoration: const InputDecoration(
+                  labelText: 'WOZ jaar',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Verhuurgegevens koppelen (ja/nee)'),
+              value: _verhuurNaarObject,
+              onChanged: _isSaving
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _verhuurNaarObject = value ?? false;
+                      });
+                    },
+            ),
+            if (_verhuurNaarObject)
+              TextField(
+                controller: _huurActueelController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Huur actueel (optioneel)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
             const SizedBox(height: 16),
             Text('1. Vloer', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
