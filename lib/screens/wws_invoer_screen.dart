@@ -539,7 +539,13 @@ class _BinnenruimtesScreenState extends State<_BinnenruimtesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        Navigator.of(context).pop(_ruimtes);
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Binnenruimtes'),
         actions: [
@@ -586,7 +592,7 @@ class _BinnenruimtesScreenState extends State<_BinnenruimtesScreen> {
                 );
               },
             ),
-    );
+    ));
   }
 }
 
@@ -731,7 +737,13 @@ class _BuitenruimtesScreenState extends State<_BuitenruimtesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        Navigator.of(context).pop(_ruimtes);
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Buitenruimtes'),
         actions: [
@@ -775,7 +787,7 @@ class _BuitenruimtesScreenState extends State<_BuitenruimtesScreen> {
                 );
               },
             ),
-    );
+    ));
   }
 }
 
@@ -909,7 +921,13 @@ class _KeukenScreenState extends State<_KeukenScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _klaar();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Keuken'),
         actions: [TextButton(onPressed: _klaar, child: const Text('Klaar'))],
@@ -936,7 +954,7 @@ class _KeukenScreenState extends State<_KeukenScreen> {
               )),
         ],
       ),
-    );
+    ));
   }
 }
 
@@ -982,7 +1000,13 @@ class _SanitairScreenState extends State<_SanitairScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _klaar();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Sanitair'),
         actions: [TextButton(onPressed: _klaar, child: const Text('Klaar'))],
@@ -1007,7 +1031,7 @@ class _SanitairScreenState extends State<_SanitairScreen> {
               )),
         ],
       ),
-    );
+    ));
   }
 }
 
@@ -1068,7 +1092,13 @@ class _EnergieScreenState extends State<_EnergieScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _klaar();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Energie & Type'),
         actions: [TextButton(onPressed: _klaar, child: const Text('Klaar'))],
@@ -1112,7 +1142,7 @@ class _EnergieScreenState extends State<_EnergieScreen> {
           ),
         ],
       ),
-    );
+    ));
   }
 }
 
@@ -1175,7 +1205,13 @@ class _WozScreenState extends State<_WozScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _klaar();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('WOZ-waarde'),
         actions: [TextButton(onPressed: _klaar, child: const Text('Klaar'))],
@@ -1216,7 +1252,7 @@ class _WozScreenState extends State<_WozScreen> {
           ),
         ],
       ),
-    );
+    ));
   }
 }
 
