@@ -60,6 +60,7 @@ class _StartScreenState extends State<StartScreen> {
   bool _wozBusy = false;
   String _wozStatus = 'WOZ nog niet opgehaald';
   int? _wozWaarde;
+  String? _energieLabel;
   String _wozPeildatum = '';
 
   @override
@@ -329,6 +330,7 @@ class _StartScreenState extends State<StartScreen> {
       _lastPhotoCount = savedCount;
     });
     await _lookupWozForAddress(bagData);
+    await _lookupEpLabelForAddress(bagData);
   }
 
   Future<void> _saveCurrentAddressForLater() async {
@@ -511,6 +513,30 @@ class _StartScreenState extends State<StartScreen> {
       _wozPeildatum = '';
     });
     await _proceedToPhotos();
+  }
+
+  /// Haalt het geregistreerde energielabel op via het publieke `eplabel`-
+  /// endpoint (§3.1b); de server gebruikt de EP-Online-key. Stil falen: bij een
+  /// fout of geen label blijft `_energieLabel` gewoon null.
+  Future<void> _lookupEpLabelForAddress(BagData bagData) async {
+    final postcode =
+        bagData.postcode.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+    final huisnummer = (bagData.huisnummer ?? '').trim();
+    final toevoeging = (bagData.huisletterHuisnummertoevoeging ?? '').trim();
+    if (postcode.isEmpty || postcode == '-' || huisnummer.isEmpty) return;
+    try {
+      final result = await BlueprintApiService.lookupEpLabel(
+        postcode: postcode,
+        huisnummer: huisnummer,
+        toevoeging: toevoeging,
+      );
+      if (!mounted) return;
+      setState(() {
+        _energieLabel = result.isOk ? result.label : null;
+      });
+    } catch (_) {
+      // Stil negeren; label vooraf invullen is een extraatje.
+    }
   }
 
   Future<void> _lookupWozForAddress(BagData bagData) async {
@@ -1486,6 +1512,7 @@ class _StartScreenState extends State<StartScreen> {
           bouwjaarVoorgevuld: int.tryParse(
             (_bagData!.oorspronkelijkBouwjaar ?? '').trim(),
           ),
+          energieLabelVoorgevuld: _energieLabel,
         ),
       ),
     );

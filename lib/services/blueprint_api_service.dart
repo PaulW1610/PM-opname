@@ -173,6 +173,46 @@ class BlueprintUploadFile {
   });
 }
 
+/// Resultaat van `POST /bd/v1/eplabel` (§3.1b) — geregistreerd EP-Online label.
+class EpLabelResult {
+  /// 'ok' | 'geen_label' | 'geen_sleutel' | 'fout'.
+  final String status;
+
+  /// Labelklasse (A++++…G); leeg als er geen label is.
+  final String label;
+  final int? bouwjaar;
+  final double? ep2;
+  final double? ag;
+  final String melding;
+
+  const EpLabelResult({
+    required this.status,
+    required this.label,
+    this.bouwjaar,
+    this.ep2,
+    this.ag,
+    this.melding = '',
+  });
+
+  bool get isOk => status == 'ok' && label.trim().isNotEmpty;
+
+  factory EpLabelResult.fromJson(Map<String, dynamic> json) {
+    double? asDouble(dynamic v) {
+      if (v is num) return v.toDouble();
+      return double.tryParse((v ?? '').toString().replaceAll(',', '.'));
+    }
+
+    return EpLabelResult(
+      status: (json['status'] ?? '').toString(),
+      label: (json['label'] ?? '').toString().trim(),
+      bouwjaar: _toNullableInt(json['bouwjaar']),
+      ep2: asDouble(json['ep2']),
+      ag: asDouble(json['ag']),
+      melding: (json['melding'] ?? '').toString(),
+    );
+  }
+}
+
 /// Contractconforme client voor `bd/v1` endpoints.
 class BlueprintApiService {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
@@ -271,6 +311,29 @@ class BlueprintApiService {
       expectedStatusCodes: const <int>{200},
     );
     return WozLookupResult.fromJson(data);
+  }
+
+  /// `POST /bd/v1/eplabel` (§3.1b, publiek) — geregistreerd energielabel
+  /// (labelklasse + bouwjaar + Ag) per adres uit EP-Online. De server houdt de
+  /// EP-Online API-key; de app hoeft niets in te stellen.
+  static Future<EpLabelResult> lookupEpLabel({
+    required String postcode,
+    required String huisnummer,
+    String toevoeging = '',
+  }) async {
+    final config = await loadConfig();
+    final payload = <String, dynamic>{
+      'postcode': postcode,
+      'huisnummer': huisnummer,
+      if (toevoeging.trim().isNotEmpty) 'toevoeging': toevoeging,
+    };
+    final data = await _postJson(
+      url: config.scopedPath('eplabel'),
+      payload: payload,
+      withAuth: false,
+      expectedStatusCodes: const <int>{200},
+    );
+    return EpLabelResult.fromJson(data);
   }
 
   /// `POST /bd/v1/wws` (publiek, JSON body verplicht).

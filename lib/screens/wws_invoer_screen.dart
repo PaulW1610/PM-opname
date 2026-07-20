@@ -16,6 +16,8 @@ class WwsInvoerScreen extends StatefulWidget {
   final int? wozVoorgevuld;
   /// Pre-gevuld bouwjaar vanuit de BAG-lookup op het startscherm.
   final int? bouwjaarVoorgevuld;
+  /// Pre-gevuld energielabel vanuit EP-Online op het startscherm.
+  final String? energieLabelVoorgevuld;
 
   const WwsInvoerScreen({
     Key? key,
@@ -23,6 +25,7 @@ class WwsInvoerScreen extends StatefulWidget {
     required this.initialData,
     this.wozVoorgevuld,
     this.bouwjaarVoorgevuld,
+    this.energieLabelVoorgevuld,
   }) : super(key: key);
 
   @override
@@ -50,6 +53,11 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
     final bouwjaarVoor = widget.bouwjaarVoorgevuld;
     if (bouwjaarVoor != null && bouwjaarVoor > 0 && opname.bouwjaar == 0) {
       opname = opname.copyWith(bouwjaar: bouwjaarVoor);
+    }
+    final labelVoor = widget.energieLabelVoorgevuld;
+    if (labelVoor != null && labelVoor.trim().isNotEmpty &&
+        opname.energieLabel.isEmpty) {
+      opname = opname.copyWith(energieLabel: labelVoor.trim());
     }
     _opname = opname;
 
