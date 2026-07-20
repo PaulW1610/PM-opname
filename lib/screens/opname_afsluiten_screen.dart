@@ -147,8 +147,11 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       return 'Websitekoppeling overgeslagen: geen Blueprint credentials in Instellingen.';
     }
 
+    // Titel = leesbaar adres (niet het dossiernummer), zodat de eenheid in het
+    // dashboard op adres verschijnt i.p.v. een nummer.
+    final adresTitel = bagData.getFolderName().trim();
     final fields = <String, String>{
-      'titel': widget.dossierName,
+      'titel': adresTitel.isNotEmpty ? adresTitel : widget.dossierName,
       if ((bagData.bagPandId ?? '').trim().isNotEmpty)
         'pand': (bagData.bagPandId ?? '').trim(),
       if (_wwsData.toepassen && _wwsData.wozWaarde.trim().isNotEmpty)
