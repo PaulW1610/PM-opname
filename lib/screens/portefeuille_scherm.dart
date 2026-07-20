@@ -309,29 +309,27 @@ class _VerbeterSchermState extends State<VerbeterScherm> {
     final geb = _currentDetail!.geb!;
     final vlakkenList = <Map<String, dynamic>>[];
     final ramenList = <Map<String, dynamic>>[];
-    final vloeren = <Map<String, dynamic>>[];
 
-    // Vlakken (muren, daken, vloeren)
+    // Alleen de door de gebruiker GEWIJZIGDE elementen als mutatie meesturen.
+    // De server matcht op A+rc_van (vlak) / A+u_van (raam) — §3.8 — en negeert
+    // `naam`. Ongewijzigde elementen weglaten voorkomt "ongematcht"-ruis.
     for (var i = 0; i < geb.vlakken.length; i++) {
+      final rcNaar = _schuifjes['vlak_$i'];
+      if (rcNaar == null) continue;
       final vlak = geb.vlakken[i];
-      final rcNaar = _schuifjes['vlak_$i'] ?? vlak.rcNaar ?? vlak.rcVan;
       vlakkenList.add({
-        // `naam` is de matchsleutel waarop de server het scenario op de
-        // geometrie legt; zonder deze naam blijft de schuif "ongematcht".
-        'naam': vlak.naam,
         'A': vlak.a,
         'rc_van': vlak.rcVan,
         'rc_naar': rcNaar,
       });
     }
 
-    // Ramen
     for (var i = 0; i < geb.ramen.length; i++) {
+      final uNaar = _schuifjes['raam_$i'];
+      if (uNaar == null) continue;
       final raam = geb.ramen[i];
-      final uNaar = _schuifjes['raam_$i'] ?? raam.uNaar ?? raam.uVan;
-      final gNaar = _schuifjes['raam_g_$i'] ?? raam.gNaar;
+      final gNaar = _schuifjes['raam_g_$i'];
       ramenList.add({
-        'naam': raam.naam,
         'A': raam.a,
         'u_van': raam.uVan,
         'u_naar': uNaar,
@@ -339,12 +337,15 @@ class _VerbeterSchermState extends State<VerbeterScherm> {
       });
     }
 
-    return {
+    final scenario = <String, dynamic>{
       'vlakken': vlakkenList,
       'ramen': ramenList,
-      'vloeren': vloeren,
-      'qv10': _schuifjes['qv10'] ?? 0.7,
+      'vloeren': <Map<String, dynamic>>[],
     };
+    if (_schuifjes.containsKey('qv10')) {
+      scenario['qv10'] = _schuifjes['qv10'];
+    }
+    return scenario;
   }
 
   Future<void> _calculateScenario() async {
@@ -668,19 +669,43 @@ class _VerbeterSchermState extends State<VerbeterScherm> {
                 const SizedBox(height: 16),
               ],
 
-              // Bereken-knop
-              ElevatedButton.icon(
-                onPressed: _calculating ? null : _calculateScenario,
-                icon: _calculating
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.calculate),
-                label: const Text('Doorrekenen'),
-              ),
-              const SizedBox(height: 16),
+              // Doorrekenen — alleen met doorrekenbare geometrie (heeft_xml).
+              if (detail.heeftXml && detail.geb != null) ...[
+                ElevatedButton.icon(
+                  onPressed: _calculating ? null : _calculateScenario,
+                  icon: _calculating
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.calculate),
+                  label: const Text('Doorrekenen'),
+                ),
+                const SizedBox(height: 16),
+              ] else ...[
+                Card(
+                  color: const Color(0xFFFFF8E1),
+                  child: const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.orange),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Deze eenheid heeft geen doorrekenbare geometrie '
+                            '(alleen een energielabel-PDF). Verbeteringen '
+                            'doorrekenen kan pas met een ingelezen '
+                            'nulmeting-XML.',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // QV10-invoer (ventilatie)
               if (detail.qv10 != null) ...[
