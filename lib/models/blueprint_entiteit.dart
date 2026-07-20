@@ -1,3 +1,22 @@
+/// Zet een JSON-waarde tolerant om naar int (accepteert int, num of tekst).
+///
+/// De website geeft sommige numerieke velden als tekst terug (bv. "1980");
+/// een harde `as int`-cast zou daarop crashen.
+int? _toInt(dynamic v) {
+  if (v == null) return null;
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse(v.toString().trim());
+}
+
+/// Zet een JSON-waarde tolerant om naar double (accepteert num of tekst,
+/// met komma of punt als decimaalteken).
+double? _toDouble(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString().trim().replaceAll(',', '.'));
+}
+
 /// Eenheid in de Blueprint-portefeuille (minimaal voor de lijst).
 class BlueprintEntiteit {
   final int id;
@@ -32,7 +51,7 @@ class BlueprintEntiteit {
 
   factory BlueprintEntiteit.fromJson(Map<String, dynamic> json) =>
       BlueprintEntiteit(
-        id: json['id'] as int,
+        id: _toInt(json['id']) ?? 0,
         titel: json['titel'] as String? ?? '',
         adres: json['adres'] as String? ?? '',
         plaats: json['plaats'] as String? ?? '',
@@ -101,7 +120,7 @@ class BlueprintEntiteitDetail extends BlueprintEntiteit {
 
   factory BlueprintEntiteitDetail.fromJson(Map<String, dynamic> json) =>
       BlueprintEntiteitDetail(
-        id: json['id'] as int,
+        id: _toInt(json['id']) ?? 0,
         titel: json['titel'] as String? ?? '',
         adres: json['adres'] as String? ?? '',
         plaats: json['plaats'] as String? ?? '',
@@ -114,10 +133,10 @@ class BlueprintEntiteitDetail extends BlueprintEntiteit {
         updatedAt: json['updated_at'] as String?,
         url: json['url'] as String? ?? '',
         heeftXml: json['heeft_xml'] as bool? ?? false,
-        bouwjaar: json['bouwjaar'] as int?,
-        ag: (json['ag'] as num?)?.toDouble(),
-        qv10: (json['qv10'] as num?)?.toDouble(),
-        behoefte: (json['behoefte'] as num?)?.toDouble(),
+        bouwjaar: _toInt(json['bouwjaar']),
+        ag: _toDouble(json['ag']),
+        qv10: _toDouble(json['qv10']),
+        behoefte: _toDouble(json['behoefte']),
         huurActueel: json['huur_actueel'] as String?,
         ververst: json['ververst'] as String?,
         geb: json['geb'] != null
@@ -150,7 +169,7 @@ class BlueprintGeometrie {
     final ramenRaw = json['ramen'] as List<dynamic>? ?? [];
 
     return BlueprintGeometrie(
-      ag: (json['ag'] as num? ?? 0).toDouble(),
+      ag: _toDouble(json['ag']) ?? 0,
       vlakken: vlakkenRaw
           .whereType<Map<String, dynamic>>()
           .map(BlueprintVlak.fromJson)
@@ -185,9 +204,9 @@ class BlueprintVlak {
 
   factory BlueprintVlak.fromJson(Map<String, dynamic> json) => BlueprintVlak(
     naam: json['naam'] as String? ?? '',
-    a: (json['A'] as num? ?? 0).toDouble(),
-    rcVan: (json['rc'] as num? ?? json['rc_van'] as num? ?? 0).toDouble(),
-    rcNaar: (json['rc_naar'] as num?)?.toDouble(),
+    a: _toDouble(json['A']) ?? 0,
+    rcVan: _toDouble(json['rc']) ?? _toDouble(json['rc_van']) ?? 0,
+    rcNaar: _toDouble(json['rc_naar']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -213,10 +232,10 @@ class BlueprintRaam {
   });
 
   factory BlueprintRaam.fromJson(Map<String, dynamic> json) => BlueprintRaam(
-    a: (json['A'] as num? ?? 0).toDouble(),
-    uVan: (json['u'] as num? ?? json['u_van'] as num? ?? 0).toDouble(),
-    uNaar: (json['u_naar'] as num?)?.toDouble(),
-    gNaar: (json['g_naar'] as num?)?.toDouble(),
+    a: _toDouble(json['A']) ?? 0,
+    uVan: _toDouble(json['u']) ?? _toDouble(json['u_van']) ?? 0,
+    uNaar: _toDouble(json['u_naar']),
+    gNaar: _toDouble(json['g_naar']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -290,7 +309,7 @@ class BlueprintRekenResultaat {
         nul: json['nul'] as Map<String, dynamic>? ?? {},
         scenario: json['scenario'] as Map<String, dynamic>? ?? {},
         ep2: json['ep2'] as Map<String, dynamic>? ?? {},
-        ongematcht: json['ongematcht'] as int? ?? 0,
+        ongematcht: _toInt(json['ongematcht']) ?? 0,
         vabi: json['vabi'] as Map<String, dynamic>?,
       );
 }
