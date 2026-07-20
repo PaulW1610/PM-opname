@@ -19,8 +19,6 @@ dependencies:
   shared_preferences: ^2.0.15
   flutter_email_sender: ^6.0.3
   pdf: ^3.8.4
-  firebase_core: ^2.32.0
-  firebase_crashlytics: ^3.5.7
   flutter_secure_storage: ^9.2.2
   url_launcher: ^6.3.1
   app_links: ^6.4.0

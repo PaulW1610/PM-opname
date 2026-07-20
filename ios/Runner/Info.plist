@@ -2,14 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<false/>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>blueprint collective</string>
+	<string>Photo Organizer App</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -53,40 +51,6 @@
 	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
-	<key>NSCameraUsageDescription</key>
-	<string>We gebruiken de camera om foto's te maken voor jouw collecties.</string>
-	<key>NSContactsUsageDescription</key>
-	<string>We gebruiken je contacten zodat je een opdrachtgever rechtstreeks uit je adresboek kunt kiezen.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>We gebruiken Foto's om afbeeldingen in een adres-album op te slaan.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>We gebruiken Foto's om afbeeldingen in een adres-album op te slaan.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>We gebruiken je locatie om BAG-gegevens op te zoeken bij je huidige positie.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Deze app heeft altijd toegang tot je locatie nodig voor volledige functionaliteit.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Lokale netwerktoegang is nodig om debugverbinding met Flutter op te zetten.</string>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_dartVmService._tcp</string>
-		<string>_dartobservatory._tcp</string>
-	</array>
-	<key>FlutterDeepLinkingEnabled</key>
-	<false/>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>CFBundleURLName</key>
-			<string>nl.paulweijers.photoorganizerapp</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>nl.paulweijers.photoorganizerapp</string>
-			</array>
-		</dict>
-	</array>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UISupportedInterfaceOrientations</key>
@@ -102,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>De app heeft toegang tot uw locatie nodig om het adres van het pand te bepalen via GPS.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>De app heeft toegang tot uw locatie nodig om het adres van het pand te bepalen via GPS.</string>
 </dict>
 </plist>

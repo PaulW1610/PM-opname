@@ -1,9 +1,13 @@
+import 'wws_opname_data.dart';
+
 class WwsInvoerData {
   final bool toepassen;
   final String punten;
   final String maxHuur;
   final String wozWaarde;
   final String wozJaar;
+  /// Volledige opname-invoer waarmee de puntentelling is berekend.
+  final WwsOpnameData? opnameData;
 
   const WwsInvoerData({
     this.toepassen = false,
@@ -11,6 +15,7 @@ class WwsInvoerData {
     this.maxHuur = '',
     this.wozWaarde = '',
     this.wozJaar = '2026',
+    this.opnameData,
   });
 
   WwsInvoerData copyWith({
@@ -19,6 +24,7 @@ class WwsInvoerData {
     String? maxHuur,
     String? wozWaarde,
     String? wozJaar,
+    WwsOpnameData? opnameData,
   }) {
     return WwsInvoerData(
       toepassen: toepassen ?? this.toepassen,
@@ -26,6 +32,7 @@ class WwsInvoerData {
       maxHuur: maxHuur ?? this.maxHuur,
       wozWaarde: wozWaarde ?? this.wozWaarde,
       wozJaar: wozJaar ?? this.wozJaar,
+      opnameData: opnameData ?? this.opnameData,
     );
   }
 

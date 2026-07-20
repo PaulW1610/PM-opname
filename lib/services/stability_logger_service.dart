@@ -4,8 +4,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -21,14 +19,11 @@ class StabilityLoggerService {
     }
     _initialized = true;
 
-    await _initializeCrashlyticsIfAvailable();
+    _crashlyticsReady = false;  // Crashlytics disabled
 
     final previousOnError = FlutterError.onError;
     FlutterError.onError = (FlutterErrorDetails details) {
       FlutterError.presentError(details);
-      if (_crashlyticsReady) {
-        unawaited(FirebaseCrashlytics.instance.recordFlutterFatalError(details));
-      }
       unawaited(
         recordException(
           details.exception,
@@ -41,16 +36,6 @@ class StabilityLoggerService {
     };
 
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
-      if (_crashlyticsReady) {
-        unawaited(
-          FirebaseCrashlytics.instance.recordError(
-            error,
-            stack,
-            fatal: true,
-            reason: 'platform_dispatcher',
-          ),
-        );
-      }
       unawaited(
         recordException(
           error,
@@ -82,9 +67,6 @@ class StabilityLoggerService {
     while (_breadcrumbs.length > _maxBreadcrumbs) {
       _breadcrumbs.removeFirst();
     }
-    if (_crashlyticsReady) {
-      FirebaseCrashlytics.instance.log(trimmed);
-    }
   }
 
   static Future<void> recordException(
@@ -93,15 +75,6 @@ class StabilityLoggerService {
     required String context,
     bool fatal = false,
   }) async {
-    if (_crashlyticsReady) {
-      await FirebaseCrashlytics.instance.recordError(
-        error,
-        stack,
-        fatal: fatal,
-        reason: context,
-      );
-    }
-
     await _writeLogLine(
       {
         'ts': DateTime.now().toIso8601String(),
@@ -120,9 +93,6 @@ class StabilityLoggerService {
     Map<String, dynamic>? data,
   }) async {
     addBreadcrumb(event);
-    if (_crashlyticsReady) {
-      FirebaseCrashlytics.instance.log('event:$event ${data ?? const {}}');
-    }
     await _writeLogLine(
       {
         'ts': DateTime.now().toIso8601String(),
@@ -149,24 +119,7 @@ class StabilityLoggerService {
   }
 
   static Future<void> _initializeCrashlyticsIfAvailable() async {
-    try {
-      if (Firebase.apps.isEmpty) {
-        await Firebase.initializeApp();
-      }
-      await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
-      _crashlyticsReady = true;
-      FirebaseCrashlytics.instance.log('crashlytics_initialized');
-    } catch (error, stack) {
-      _crashlyticsReady = false;
-      await _writeLogLine(
-        {
-          'ts': DateTime.now().toIso8601String(),
-          'type': 'startup',
-          'event': 'crashlytics_not_configured',
-          'error': error.toString(),
-          'stack': stack.toString(),
-        },
-      );
-    }
+    // Crashlytics removed - Firebase dependencies removed from pubspec.yaml
+    _crashlyticsReady = false;
   }
 }

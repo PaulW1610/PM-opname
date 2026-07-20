@@ -1443,6 +1443,7 @@ class _StartScreenState extends State<StartScreen> {
         builder: (_) => WwsInvoerScreen(
           dossierNaam: _bagData!.getFolderName(),
           initialData: initial,
+          wozVoorgevuld: _wozWaarde,
         ),
       ),
     );
