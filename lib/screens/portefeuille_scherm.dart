@@ -278,6 +278,9 @@ class _VerbeterSchermState extends State<VerbeterScherm> {
   Map<String, double> _schuifjes = {};
   String? _notitie;
 
+  /// Gekozen vervanging per glastype-groep: glastype -> 'geen'|'hrpp'|'triple'.
+  final Map<String, String> _glasKeuze = {};
+
   @override
   void initState() {
     super.initState();
@@ -417,6 +420,105 @@ class _VerbeterSchermState extends State<VerbeterScherm> {
     if (ep2Val <= 330) return 'E';
     if (ep2Val <= 430) return 'F';
     return 'G';
+  }
+
+  // ---- Beglazing gebundeld per glastype (contract §3.10) ----
+  // U-waarde = raam incl. kozijn. Vervangwaarden vast per glastype.
+  static const Map<String, Map<String, Object>> _glasVervangOpties = {
+    'hrpp': {'label': 'HR++ (U 1,6)', 'u': 1.6, 'g': 0.60},
+    'triple': {'label': 'Triple (U 0,9)', 'u': 0.9, 'g': 0.50},
+  };
+
+  /// Bepaalt het glastype op basis van de huidige U-waarde (§3.10-grenzen).
+  String _glasType(double u) {
+    if (u >= 4.3) return 'Enkel glas';
+    if (u >= 2.4) return 'Dubbel glas';
+    if (u >= 1.45) return 'HR++ glas';
+    return 'Triple glas';
+  }
+
+  /// Zet per glasgroep de gekozen vervanging om naar u_naar/g_naar per raam.
+  void _kiesGlas(String type, String keuze, List<int> indices) {
+    setState(() {
+      _glasKeuze[type] = keuze;
+      for (final i in indices) {
+        if (keuze == 'geen') {
+          _schuifjes.remove('raam_$i');
+          _schuifjes.remove('raam_g_$i');
+        } else {
+          final opt = _glasVervangOpties[keuze]!;
+          _schuifjes['raam_$i'] = opt['u'] as double;
+          _schuifjes['raam_g_$i'] = opt['g'] as double;
+        }
+      }
+    });
+  }
+
+  /// Bouwt per glastype een kaart met totaal-m² en vervangkeuzes.
+  List<Widget> _buildGlasGroepen(BlueprintGeometrie geb) {
+    final groepen = <String, List<int>>{};
+    for (var i = 0; i < geb.ramen.length; i++) {
+      final type = _glasType(geb.ramen[i].uVan);
+      groepen.putIfAbsent(type, () => <int>[]).add(i);
+    }
+
+    const volgorde = ['Enkel glas', 'Dubbel glas', 'HR++ glas', 'Triple glas'];
+    final widgets = <Widget>[];
+    for (final type in volgorde) {
+      final indices = groepen[type];
+      if (indices == null || indices.isEmpty) continue;
+      final totaalM2 = indices.fold<double>(0, (s, i) => s + geb.ramen[i].a);
+      final keuze = _glasKeuze[type] ?? 'geen';
+
+      // Alleen vervangopties naar beter glas dan de huidige groep.
+      final opties = <String>['geen'];
+      if (type == 'Enkel glas' || type == 'Dubbel glas') {
+        opties.add('hrpp');
+        opties.add('triple');
+      } else if (type == 'HR++ glas') {
+        opties.add('triple');
+      }
+
+      widgets.add(Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$type  ·  ${totaalM2.toStringAsFixed(1)} m²  '
+                '(${indices.length} ${indices.length == 1 ? 'raam' : 'ramen'})',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              if (opties.length == 1)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text('Al de beste beglazing',
+                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                )
+              else ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: opties.map((opt) {
+                    final label = opt == 'geen'
+                        ? 'Niet vervangen'
+                        : 'Vervang door ${_glasVervangOpties[opt]!['label']}';
+                    return ChoiceChip(
+                      label: Text(label),
+                      selected: keuze == opt,
+                      onSelected: (_) => _kiesGlas(type, opt, indices),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ));
+    }
+    return widgets;
   }
 
   @override
@@ -559,27 +661,10 @@ class _VerbeterSchermState extends State<VerbeterScherm> {
                 const SizedBox(height: 16),
               ],
 
-              // Schuifjes (ramen)
+              // Ramen — gebundeld per glastype (contract §3.10)
               if (detail.geb != null && detail.geb!.ramen.isNotEmpty) ...[
-                _SectionHeader('Ramen verbeteren'),
-                ...detail.geb!.ramen.asMap().entries.map((e) {
-                  final i = e.key;
-                  final r = e.value;
-                  return _RaamSchuif(
-                    raam: r,
-                    index: i,
-                    onUChanged: (uNaar) {
-                      setState(() {
-                        _schuifjes['raam_$i'] = uNaar;
-                      });
-                    },
-                    onGChanged: (gNaar) {
-                      setState(() {
-                        _schuifjes['raam_g_$i'] = gNaar;
-                      });
-                    },
-                  );
-                }),
+                _SectionHeader('Beglazing verbeteren'),
+                ..._buildGlasGroepen(detail.geb!),
                 const SizedBox(height: 16),
               ],
 
