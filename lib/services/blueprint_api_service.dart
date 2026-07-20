@@ -183,6 +183,26 @@ class EpLabelResult {
   final int? bouwjaar;
   final double? ep2;
   final double? ag;
+
+  /// Warmtebehoefte (kWh/m²·jr); kan null zijn bij oudere registraties.
+  final double? warmtebehoefte;
+
+  /// BAG-verblijfsobject-id (match-sleutel bij imports); kan leeg zijn.
+  final String bagId;
+
+  /// Registratiedatum in EP-Online (yyyy-MM-dd). Bepaalt of het label van
+  /// vóór 2021 (oude bepalingsmethode) is.
+  final String registratiedatum;
+
+  /// Opnamedatum van de energieadviseur (yyyy-MM-dd).
+  final String opnamedatum;
+
+  /// Einddatum geldigheid (yyyy-MM-dd); labels zijn 10 jaar geldig.
+  final String geldigTot;
+
+  /// Soort registratie, bv. "Woningen detailopname".
+  final String soort;
+
   final String melding;
 
   const EpLabelResult({
@@ -191,10 +211,55 @@ class EpLabelResult {
     this.bouwjaar,
     this.ep2,
     this.ag,
+    this.warmtebehoefte,
+    this.bagId = '',
+    this.registratiedatum = '',
+    this.opnamedatum = '',
+    this.geldigTot = '',
+    this.soort = '',
     this.melding = '',
   });
 
   bool get isOk => status == 'ok' && label.trim().isNotEmpty;
+
+  /// Datum waarop dit label is vastgelegd — registratiedatum, met opnamedatum
+  /// als terugval. Null als geen van beide een geldige datum bevat.
+  DateTime? get vastgelegdOp =>
+      _parseDatum(registratiedatum) ?? _parseDatum(opnamedatum);
+
+  DateTime? get registratieOp => _parseDatum(registratiedatum);
+
+  DateTime? get opnameOp => _parseDatum(opnamedatum);
+
+  DateTime? get geldigTotDatum => _parseDatum(geldigTot);
+
+  /// Label van vóór 1 januari 2021: toen ging de nieuwe bepalingsmethode
+  /// (NTA 8800) in. Oudere labels (Energie-Index) kunnen sterk afwijken van
+  /// de werkelijke energieprestatie.
+  bool get isVoor2021 {
+    final d = vastgelegdOp;
+    return d != null && d.isBefore(DateTime(2021, 1, 1));
+  }
+
+  /// Verlopen als de geldigheidsdatum in het verleden ligt.
+  bool get isVerlopen {
+    final d = geldigTotDatum;
+    return d != null && d.isBefore(DateTime.now());
+  }
+
+  /// Verloopt binnen zes maanden (maar nog niet verlopen).
+  bool get verlooptBinnenkort {
+    final d = geldigTotDatum;
+    if (d == null || isVerlopen) return false;
+    return d.isBefore(DateTime.now().add(const Duration(days: 183)));
+  }
+
+  static DateTime? _parseDatum(String raw) {
+    final s = raw.trim();
+    if (s.isEmpty) return null;
+    // Neem alleen het datum-deel (yyyy-MM-dd), negeer eventuele tijd.
+    return DateTime.tryParse(s.length >= 10 ? s.substring(0, 10) : s);
+  }
 
   factory EpLabelResult.fromJson(Map<String, dynamic> json) {
     double? asDouble(dynamic v) {
@@ -208,6 +273,12 @@ class EpLabelResult {
       bouwjaar: _toNullableInt(json['bouwjaar']),
       ep2: asDouble(json['ep2']),
       ag: asDouble(json['ag']),
+      warmtebehoefte: asDouble(json['warmtebehoefte']),
+      bagId: (json['bag_id'] ?? '').toString(),
+      registratiedatum: (json['registratiedatum'] ?? '').toString(),
+      opnamedatum: (json['opnamedatum'] ?? '').toString(),
+      geldigTot: (json['geldig_tot'] ?? '').toString(),
+      soort: (json['soort'] ?? '').toString(),
       melding: (json['melding'] ?? '').toString(),
     );
   }

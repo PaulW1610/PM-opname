@@ -61,6 +61,7 @@ class _StartScreenState extends State<StartScreen> {
   String _wozStatus = 'WOZ nog niet opgehaald';
   int? _wozWaarde;
   String? _energieLabel;
+  EpLabelResult? _epLabel;
   String _wozPeildatum = '';
 
   @override
@@ -527,6 +528,203 @@ class _StartScreenState extends State<StartScreen> {
     return const Color(0xFFD32F2F);
   }
 
+  /// Formatteert een datum als dd-MM-yyyy (of '—' bij null).
+  String _datumNl(DateTime? d) {
+    if (d == null) return '—';
+    String tw(int n) => n.toString().padLeft(2, '0');
+    return '${tw(d.day)}-${tw(d.month)}-${d.year}';
+  }
+
+  /// Toont alle geregistreerde EP-Online-gegevens in een detail-sheet, met een
+  /// waarschuwing bij een label van vóór 2021 of een (bijna) verlopen label.
+  void _toonLabelDetails(EpLabelResult ep) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Kop: grote labelletter + soort registratie.
+                Row(
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: _labelKleur(ep.label),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Text(
+                        ep.label,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 24,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Geregistreerd energielabel',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          if (ep.soort.trim().isNotEmpty)
+                            Text(
+                              ep.soort,
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          const Text(
+                            'Bron: EP-Online (RVO)',
+                            style: TextStyle(
+                                color: Colors.black45, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                // Waarschuwing vóór 2021 (oude bepalingsmethode).
+                if (ep.isVoor2021)
+                  _labelWaarschuwing(
+                    kleur: const Color(0xFFEF6C00),
+                    icoon: Icons.warning_amber_rounded,
+                    titel: 'Label van vóór 2021',
+                    tekst:
+                        'Dit label is vastgelegd met de oude bepalingsmethode '
+                        '(Energie-Index). Het kan sterk afwijken van de '
+                        'werkelijke energieprestatie — een nieuwe opname is '
+                        'aan te raden.',
+                  ),
+
+                // Waarschuwing verlopen / bijna verlopen.
+                if (ep.isVerlopen)
+                  _labelWaarschuwing(
+                    kleur: const Color(0xFFD32F2F),
+                    icoon: Icons.error_outline,
+                    titel: 'Label verlopen',
+                    tekst:
+                        'De geldigheid is verstreken (${_datumNl(ep.geldigTotDatum)}). '
+                        'Er is een nieuwe opname nodig.',
+                  )
+                else if (ep.verlooptBinnenkort)
+                  _labelWaarschuwing(
+                    kleur: const Color(0xFFF9A825),
+                    icoon: Icons.schedule,
+                    titel: 'Verloopt binnenkort',
+                    tekst:
+                        'Dit label verloopt op ${_datumNl(ep.geldigTotDatum)}. '
+                        'Plan tijdig een nieuwe opname in.',
+                  ),
+
+                const SizedBox(height: 16),
+
+                // Feitenlijst.
+                _labelRegel('Label', ep.label),
+                _labelRegel('Registratiedatum', _datumNl(ep.registratieOp)),
+                if (ep.opnameOp != null)
+                  _labelRegel('Opnamedatum', _datumNl(ep.opnameOp)),
+                _labelRegel('Geldig tot', _datumNl(ep.geldigTotDatum)),
+                if (ep.bouwjaar != null)
+                  _labelRegel('Bouwjaar', ep.bouwjaar.toString()),
+                if (ep.ag != null)
+                  _labelRegel('Gebruiksoppervlak', '${ep.ag} m²'),
+                if (ep.ep2 != null)
+                  _labelRegel('Primair fossiel (EP2)', '${ep.ep2} kWh/m²·jr'),
+                if (ep.warmtebehoefte != null)
+                  _labelRegel(
+                      'Warmtebehoefte', '${ep.warmtebehoefte} kWh/m²·jr'),
+                if (ep.bagId.trim().isNotEmpty)
+                  _labelRegel('BAG-id', ep.bagId),
+
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('Sluiten'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _labelWaarschuwing({
+    required Color kleur,
+    required IconData icoon,
+    required String titel,
+    required String tekst,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: kleur.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kleur.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icoon, color: kleur, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(titel,
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, color: kleur)),
+                const SizedBox(height: 2),
+                Text(tekst, style: const TextStyle(fontSize: 13)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _labelRegel(String label, String waarde) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 150,
+            child: Text(label,
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          ),
+          Expanded(
+            child: Text(waarde,
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Haalt het geregistreerde energielabel op via het publieke `eplabel`-
   /// endpoint (§3.1b); de server gebruikt de EP-Online-key. Stil falen: bij een
   /// fout of geen label blijft `_energieLabel` gewoon null.
@@ -545,6 +743,7 @@ class _StartScreenState extends State<StartScreen> {
       if (!mounted) return;
       setState(() {
         _energieLabel = result.isOk ? result.label : null;
+        _epLabel = result.isOk ? result : null;
       });
     } catch (_) {
       // Stil negeren; label vooraf invullen is een extraatje.
@@ -1643,33 +1842,52 @@ class _StartScreenState extends State<StartScreen> {
                       ),
                       if (_energieLabel != null) ...[
                         const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: _labelKleur(_energieLabel!),
-                            borderRadius: BorderRadius.circular(22),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.energy_savings_leaf,
-                                  color: Colors.white, size: 18),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Energielabel  ${_energieLabel!}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
+                        InkWell(
+                          onTap: _epLabel != null
+                              ? () => _toonLabelDetails(_epLabel!)
+                              : null,
+                          borderRadius: BorderRadius.circular(22),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: _labelKleur(_energieLabel!),
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.energy_savings_leaf,
+                                    color: Colors.white, size: 18),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Energielabel  ${_energieLabel!}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
                                 ),
-                              ),
-                            ],
+                                if (_epLabel != null) ...[
+                                  const SizedBox(width: 8),
+                                  Icon(
+                                    (_epLabel!.isVoor2021 ||
+                                            _epLabel!.isVerlopen)
+                                        ? Icons.warning_amber_rounded
+                                        : Icons.info_outline,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Er is al een geregistreerd label',
+                          _epLabel != null
+                              ? 'Tik voor details (datum, geldigheid)'
+                              : 'Er is al een geregistreerd label',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Colors.black54),
                         ),
