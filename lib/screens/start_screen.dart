@@ -990,6 +990,7 @@ class _StartScreenState extends State<StartScreen> {
       });
       if (selected != null) {
         await _lookupWozForAddress(selected);
+        await _lookupEpLabelForAddress(selected);
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1025,6 +1026,7 @@ class _StartScreenState extends State<StartScreen> {
       _lastPhotoCount = savedCount;
     });
     await _lookupWozForAddress(candidate);
+    await _lookupEpLabelForAddress(candidate);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Adres gekozen: ${candidate.getFolderName()}')),
     );
@@ -1409,6 +1411,7 @@ class _StartScreenState extends State<StartScreen> {
 
       if (selectedBagData != null) {
         await _lookupWozForAddress(selectedBagData);
+        await _lookupEpLabelForAddress(selectedBagData);
         final savedCount = await _loadPhotoCountForAddress(selectedBagData);
         if (!mounted || fetchId != _activeFetchId) return;
         setState(() {
