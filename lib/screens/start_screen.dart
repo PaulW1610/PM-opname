@@ -515,6 +515,18 @@ class _StartScreenState extends State<StartScreen> {
     await _proceedToPhotos();
   }
 
+  /// Kleur per energielabel (groen = zuinig … rood = onzuinig).
+  Color _labelKleur(String label) {
+    final l = label.toUpperCase();
+    if (l.startsWith('A')) return const Color(0xFF2E7D32);
+    if (l == 'B') return const Color(0xFF66BB6A);
+    if (l == 'C') return const Color(0xFF9CCC65);
+    if (l == 'D') return const Color(0xFFF9A825);
+    if (l == 'E') return const Color(0xFFF57C00);
+    if (l == 'F') return const Color(0xFFEF6C00);
+    return const Color(0xFFD32F2F);
+  }
+
   /// Haalt het geregistreerde energielabel op via het publieke `eplabel`-
   /// endpoint (§3.1b); de server gebruikt de EP-Online-key. Stil falen: bij een
   /// fout of geen label blijft `_energieLabel` gewoon null.
@@ -1629,6 +1641,39 @@ class _StartScreenState extends State<StartScreen> {
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
+                      if (_energieLabel != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _labelKleur(_energieLabel!),
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.energy_savings_leaf,
+                                  color: Colors.white, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Energielabel  ${_energieLabel!}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Er is al een geregistreerd label',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.black54),
+                        ),
+                      ],
                     ],
                   ),
                 )
