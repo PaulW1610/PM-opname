@@ -168,17 +168,42 @@ class BlueprintGeometrie {
     final vlakkenRaw = json['vlakken'] as List<dynamic>? ?? [];
     final ramenRaw = json['ramen'] as List<dynamic>? ?? [];
 
+    final vlakken = <BlueprintVlak>[];
+    final ramen = <BlueprintRaam>[];
+
+    // Ramen kunnen als aparte `ramen`-lijst komen, óf (contract §3.7) gemengd
+    // in `vlakken` staan als {naam:"raam", A, U}. Splits ze eruit zodat de
+    // glastype-bundeling werkt en ramen niet als losse vlakken verschijnen.
+    for (final e in ramenRaw.whereType<Map<String, dynamic>>()) {
+      ramen.add(BlueprintRaam.fromJson(e));
+    }
+    for (final e in vlakkenRaw.whereType<Map<String, dynamic>>()) {
+      if (_isRaam(e)) {
+        ramen.add(BlueprintRaam.fromJson(e));
+      } else {
+        vlakken.add(BlueprintVlak.fromJson(e));
+      }
+    }
+
     return BlueprintGeometrie(
       ag: _toDouble(json['ag']) ?? 0,
-      vlakken: vlakkenRaw
-          .whereType<Map<String, dynamic>>()
-          .map(BlueprintVlak.fromJson)
-          .toList(),
-      ramen: ramenRaw
-          .whereType<Map<String, dynamic>>()
-          .map(BlueprintRaam.fromJson)
-          .toList(),
+      vlakken: vlakken,
+      ramen: ramen,
     );
+  }
+
+  /// Herkent of een geometrie-item een raam is: naam "raam"/"glas", of een
+  /// U-waarde zonder Rc-waarde.
+  static bool _isRaam(Map<String, dynamic> e) {
+    final naam = (e['naam'] as String? ?? '').toLowerCase();
+    if (naam.contains('raam') ||
+        naam.contains('glas') ||
+        naam.contains('beglazing')) {
+      return true;
+    }
+    final hasU = e.containsKey('U') || e.containsKey('u') || e.containsKey('u_van');
+    final hasRc = e.containsKey('rc') || e.containsKey('rc_van');
+    return hasU && !hasRc;
   }
 
   Map<String, dynamic> toJson() => {
@@ -235,8 +260,11 @@ class BlueprintRaam {
 
   factory BlueprintRaam.fromJson(Map<String, dynamic> json) => BlueprintRaam(
     naam: json['naam'] as String? ?? 'raam',
-    a: _toDouble(json['A']) ?? 0,
-    uVan: _toDouble(json['u']) ?? _toDouble(json['u_van']) ?? 0,
+    a: _toDouble(json['A']) ?? _toDouble(json['a']) ?? 0,
+    uVan: _toDouble(json['U']) ??
+        _toDouble(json['u']) ??
+        _toDouble(json['u_van']) ??
+        0,
     uNaar: _toDouble(json['u_naar']),
     gNaar: _toDouble(json['g_naar']),
   );
