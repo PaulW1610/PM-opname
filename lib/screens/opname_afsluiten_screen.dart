@@ -151,26 +151,28 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       'titel': widget.dossierName,
       if ((bagData.bagPandId ?? '').trim().isNotEmpty)
         'pand': (bagData.bagPandId ?? '').trim(),
-      if (_wwsData.toepassen && _wwsData.punten.trim().isNotEmpty)
-        'wws_punten': _wwsPuntenController.text.trim(),
-      if (_wwsData.toepassen && _wwsData.maxHuur.trim().isNotEmpty)
-        'huur_max': _wwsMaxHuurController.text.trim(),
       if (_wwsData.toepassen && _wwsData.wozWaarde.trim().isNotEmpty)
         'woz': _wwsWozWaardeController.text.trim(),
       'wws_actief': _wwsData.toepassen ? '1' : '0',
     };
 
     if (_wwsData.toepassen) {
-      final dossier = <String, dynamic>{
-        'bron': 'photo_organizer_app',
-        'type': 'handmatige_wws_invoer',
-        'punten': _wwsPuntenController.text.trim(),
-        'max_huur': _wwsMaxHuurController.text.trim(),
-        'woz_waarde': _wwsWozWaardeController.text.trim(),
-        'woz_jaar': _wwsData.wozJaar,
-        'ingevoerd_op': DateTime.now().toIso8601String(),
-      };
-      fields['wws_dossier'] = jsonEncode(dossier);
+      final opname = _wwsData.opnameData;
+      if (opname != null) {
+        // Contract §3.9: stuur het WWS als dossier in de INVOER-vorm (§3.2).
+        // De server herrekent zelf wws_punten en huur_max uit dit dossier,
+        // dus die sturen we NIET mee (server is de rekenmeester).
+        fields['wws_dossier'] = jsonEncode(opname.toApiJson());
+      } else {
+        // Terugval als de volledige invoer ontbreekt: stuur de bekende
+        // getallen mee zodat de eenheid toch punten/huur toont.
+        if (_wwsData.punten.trim().isNotEmpty) {
+          fields['wws_punten'] = _wwsPuntenController.text.trim();
+        }
+        if (_wwsData.maxHuur.trim().isNotEmpty) {
+          fields['huur_max'] = _wwsMaxHuurController.text.trim();
+        }
+      }
     }
 
     final created = await BlueprintApiService.createEntiteit(fields: fields);
