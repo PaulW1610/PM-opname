@@ -30,7 +30,6 @@ class MyApp extends StatelessWidget {
 
   @override
   /// Build the [MaterialApp] used as the app shell.
-  @override
   Widget build(BuildContext context) {
     const navy = BrandColors.navy;
     const orange = BrandColors.orange;

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import '../models/blueprint_entiteit.dart';
 
 /// Configuratie voor de Blueprint Data REST-API.
 class BlueprintApiConfig {
@@ -421,6 +422,134 @@ class BlueprintApiService {
     return data;
   }
 
+  /// `GET /bd/v1/entiteiten` (beveiligd, portfolio-lijst met paginatie).
+  static Future<List<BlueprintEntiteit>> getEntiteiten({
+    int page = 1,
+    int perPage = 20,
+    String? search,
+  }) async {
+    final config = await loadConfig();
+    if (!config.hasCredentials) {
+      throw const BlueprintApiException(
+        code: 'bd_auth_required',
+        message: 'Geen credentials ingesteld.',
+        status: 401,
+      );
+    }
+    final uri = Uri.parse(config.scopedPath('entiteiten')).replace(queryParameters: {
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+      if (search != null && search.isNotEmpty) 'search': search,
+    });
+    final response = await http
+        .get(uri, headers: _authHeaders(config))
+        .timeout(const Duration(seconds: 30));
+    if (response.statusCode != 200) {
+      throw _buildExceptionFromResponse(response);
+    }
+    final decoded = _decodeJsonBody(response.body);
+    if (decoded is List) {
+      return decoded
+          .whereType<Map>()
+          .map((e) => BlueprintEntiteit.fromJson(Map<String, dynamic>.from(e)))
+          .toList(growable: false);
+    }
+    if (decoded is Map && decoded['eenheden'] is List) {
+      final eenheden = decoded['eenheden'] as List;
+      return eenheden
+          .whereType<Map>()
+          .map((e) => BlueprintEntiteit.fromJson(Map<String, dynamic>.from(e)))
+          .toList(growable: false);
+    }
+    return const <BlueprintEntiteit>[];
+  }
+
+  /// `GET /bd/v1/entiteit/{id}` (beveiligd, volledige detail).
+  static Future<BlueprintEntiteitDetail> getEntiteit(int id) async {
+    final config = await loadConfig();
+    if (!config.hasCredentials) {
+      throw const BlueprintApiException(
+        code: 'bd_auth_required',
+        message: 'Geen credentials ingesteld.',
+        status: 401,
+      );
+    }
+    final uri = Uri.parse(config.scopedPath('entiteit/$id'));
+    final response = await http
+        .get(uri, headers: _authHeaders(config))
+        .timeout(const Duration(seconds: 30));
+    if (response.statusCode == 404) {
+      throw BlueprintApiException(
+        code: 'bd_not_found',
+        message: 'Eenheid niet gevonden.',
+        status: 404,
+        body: response.body,
+      );
+    }
+    if (response.statusCode != 200) {
+      throw _buildExceptionFromResponse(response);
+    }
+    final decoded = _decodeJsonBody(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw BlueprintApiException(
+        code: 'bd_parse_error',
+        message: 'Ongeldige response van server.',
+        status: 0,
+      );
+    }
+    return BlueprintEntiteitDetail.fromJson(decoded);
+  }
+
+  /// `POST /bd/v1/reken/{id}` (beveiligd, scenario-berekening EP2).
+  static Future<BlueprintRekenResultaat> calculateReken({
+    required int entiteitId,
+    required Map<String, dynamic> scenario,
+  }) async {
+    final config = await loadConfig();
+    if (!config.hasCredentials) {
+      throw const BlueprintApiException(
+        code: 'bd_auth_required',
+        message: 'Geen credentials ingesteld.',
+        status: 401,
+      );
+    }
+    final data = await _postJson(
+      url: config.scopedPath('reken/$entiteitId'),
+      payload: scenario,
+      withAuth: true,
+      expectedStatusCodes: const <int>{200},
+    );
+    return BlueprintRekenResultaat.fromJson(data);
+  }
+
+  /// `POST /bd/v1/entiteit/{id}/scenario` (beveiligd, scenario opslaan).
+  static Future<void> saveScenario({
+    required int entiteitId,
+    required Map<String, dynamic> scenario,
+    Map<String, dynamic>? resultaat,
+    String? notitie,
+  }) async {
+    final config = await loadConfig();
+    if (!config.hasCredentials) {
+      throw const BlueprintApiException(
+        code: 'bd_auth_required',
+        message: 'Geen credentials ingesteld.',
+        status: 401,
+      );
+    }
+    final payload = <String, dynamic>{
+      'scenario': scenario,
+      if (resultaat != null) 'resultaat': resultaat,
+      if (notitie != null && notitie.isNotEmpty) 'notitie': notitie,
+    };
+    await _postJson(
+      url: config.scopedPath('entiteit/$entiteitId/scenario'),
+      payload: payload,
+      withAuth: true,
+      expectedStatusCodes: const <int>{200},
+    );
+  }
+
   static Map<String, String> _authHeaders(BlueprintApiConfig config) {
     final token = base64Encode(
       utf8.encode('${config.username}:${config.applicationPassword}'),
@@ -595,6 +724,7 @@ class BlueprintApiService {
       return null;
     }
   }
+
 }
 
 /// Contractuele referentiewaarden voor WWS-keuzevelden.
@@ -719,8 +849,9 @@ class BlueprintWwsContract {
     '2025',
     '2026',
   ];
-}
 
+
+}
 int? _toNullableInt(dynamic value) {
   if (value == null) {
     return null;

@@ -19,6 +19,7 @@ import 'beslisschemas_screen.dart';
 import 'instellingen_screen.dart';
 import 'opname_afsluiten_screen.dart';
 import 'photo_selection_screen.dart';
+import 'portefeuille_scherm.dart';
 import 'wws_invoer_screen.dart';
 
 /// Start screen to fetch current location and building address.
@@ -1443,6 +1444,7 @@ class _StartScreenState extends State<StartScreen> {
         builder: (_) => WwsInvoerScreen(
           dossierNaam: _bagData!.getFolderName(),
           initialData: initial,
+          wozVoorgevuld: _wozWaarde,
         ),
       ),
     );
@@ -1454,6 +1456,14 @@ class _StartScreenState extends State<StartScreen> {
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('WWS bijgewerkt: ${result.korteStatus}')),
+    );
+  }
+
+  Future<void> _openPortefeuille() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => const PortefeuilleScherm(),
+      ),
     );
   }
 
@@ -1909,6 +1919,11 @@ class _StartScreenState extends State<StartScreen> {
         icon: Icons.bookmark_add_outlined,
         label: 'Adres opslaan',
         onPressed: (busy || !hasAddress) ? null : _saveCurrentAddressForLater,
+      ),
+      BrandTileButton(
+        icon: Icons.business,
+        label: 'Mijn eenheden',
+        onPressed: busy ? null : _openPortefeuille,
       ),
     ];
 
