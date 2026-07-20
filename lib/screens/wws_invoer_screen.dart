@@ -85,7 +85,8 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
     }
   }
 
-  void _opslaan() {
+  /// Bouwt de huidige WWS-invoer (gebruikt bij Opslaan én bij terug-navigeren).
+  WwsInvoerData _huidigeData() {
     final ber = _berekening;
     final punten = ber != null
         ? (ber['totaal_met_cap'] as num?)?.toString() ?? ''
@@ -95,18 +96,20 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
         ? maxHuurRaw.toDouble().toStringAsFixed(2)
         : (ber != null ? '' : widget.initialData.maxHuur);
 
-    Navigator.of(context).pop(
-      WwsInvoerData(
-        toepassen: _toepassen,
-        punten: punten,
-        maxHuur: maxHuur,
-        wozWaarde: _opname.wozWaarde > 0
-            ? _opname.wozWaarde.toStringAsFixed(0)
-            : widget.initialData.wozWaarde,
-        wozJaar: _opname.wozJaar,
-        opnameData: _opname,
-      ),
+    return WwsInvoerData(
+      toepassen: _toepassen,
+      punten: punten,
+      maxHuur: maxHuur,
+      wozWaarde: _opname.wozWaarde > 0
+          ? _opname.wozWaarde.toStringAsFixed(0)
+          : widget.initialData.wozWaarde,
+      wozJaar: _opname.wozJaar,
+      opnameData: _opname,
     );
+  }
+
+  void _opslaan() {
+    Navigator.of(context).pop(_huidigeData());
   }
 
   Future<void> _openBinnenruimtes() async {
@@ -267,7 +270,15 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
           subtitle: _wozSub, onTap: _openWoz, gevuld: _gevuld(5)),
     ];
 
-    return Scaffold(
+    return PopScope<WwsInvoerData>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        // Ook bij terug-navigeren de huidige invoer teruggeven, zodat
+        // start_screen 'm opslaat (auto-bewaren zonder expliciet 'Opslaan').
+        Navigator.of(context).pop(_huidigeData());
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('WWS opname'),
         actions: [
@@ -351,7 +362,7 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
           ],
         ),
       ),
-    );
+    ));
   }
 }
 
