@@ -514,8 +514,10 @@ class BlueprintApiService {
       );
     }
     final data = await _postJson(
+      // Contract §3.8: de reken-body moet het scenario in een `scenario`-sleutel
+      // verpakken (net als saveScenario). Zonder wrapper rekent de server niets.
       url: config.scopedPath('reken/$entiteitId'),
-      payload: scenario,
+      payload: <String, dynamic>{'scenario': scenario},
       withAuth: true,
       expectedStatusCodes: const <int>{200},
     );
