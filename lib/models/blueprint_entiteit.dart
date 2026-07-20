@@ -219,12 +219,14 @@ class BlueprintVlak {
 
 /// Raam met oppervlakte en U-waarde.
 class BlueprintRaam {
+  final String naam;
   final double a;
   final double uVan;
   final double? uNaar;
   final double? gNaar;
 
   const BlueprintRaam({
+    this.naam = 'raam',
     required this.a,
     required this.uVan,
     this.uNaar,
@@ -232,6 +234,7 @@ class BlueprintRaam {
   });
 
   factory BlueprintRaam.fromJson(Map<String, dynamic> json) => BlueprintRaam(
+    naam: json['naam'] as String? ?? 'raam',
     a: _toDouble(json['A']) ?? 0,
     uVan: _toDouble(json['u']) ?? _toDouble(json['u_van']) ?? 0,
     uNaar: _toDouble(json['u_naar']),
@@ -239,6 +242,7 @@ class BlueprintRaam {
   );
 
   Map<String, dynamic> toJson() => {
+    'naam': naam,
     'A': a,
     'u_van': uVan,
     if (uNaar != null) 'u_naar': uNaar,

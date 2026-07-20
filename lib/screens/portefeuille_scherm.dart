@@ -313,6 +313,9 @@ class _VerbeterSchermState extends State<VerbeterScherm> {
       final vlak = geb.vlakken[i];
       final rcNaar = _schuifjes['vlak_$i'] ?? vlak.rcNaar ?? vlak.rcVan;
       vlakkenList.add({
+        // `naam` is de matchsleutel waarop de server het scenario op de
+        // geometrie legt; zonder deze naam blijft de schuif "ongematcht".
+        'naam': vlak.naam,
         'A': vlak.a,
         'rc_van': vlak.rcVan,
         'rc_naar': rcNaar,
@@ -325,6 +328,7 @@ class _VerbeterSchermState extends State<VerbeterScherm> {
       final uNaar = _schuifjes['raam_$i'] ?? raam.uNaar ?? raam.uVan;
       final gNaar = _schuifjes['raam_g_$i'] ?? raam.gNaar;
       ramenList.add({
+        'naam': raam.naam,
         'A': raam.a,
         'u_van': raam.uVan,
         'u_naar': uNaar,
