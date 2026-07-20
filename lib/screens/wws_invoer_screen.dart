@@ -386,11 +386,24 @@ class _WwsTegel extends StatelessWidget {
   final _TileData data;
   const _WwsTegel({required this.data});
 
+  // Zachte pastelgroene tinten voor een ingevulde tegel.
+  static const Color _gevuldBg = Color(0xFFE7F6EC);
+  static const Color _gevuldRand = Color(0xFFA5D6A7);
+  static const Color _gevuldGroen = Color(0xFF2E7D32);
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final gevuld = data.gevuld;
     return Card(
-      elevation: 2,
+      elevation: gevuld ? 1 : 2,
+      color: gevuld ? _gevuldBg : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: gevuld
+            ? const BorderSide(color: _gevuldRand, width: 1.4)
+            : BorderSide.none,
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: data.onTap,
@@ -402,10 +415,13 @@ class _WwsTegel extends StatelessWidget {
               Row(
                 children: [
                   Icon(data.icon, size: 26,
-                      color: data.gevuld ? cs.primary : cs.onSurface.withOpacity(0.45)),
+                      color: gevuld
+                          ? _gevuldGroen
+                          : cs.onSurface.withOpacity(0.45)),
                   const Spacer(),
-                  if (data.gevuld)
-                    Icon(Icons.check_circle, size: 18, color: cs.primary),
+                  if (gevuld)
+                    const Icon(Icons.check_circle, size: 18,
+                        color: _gevuldGroen),
                 ],
               ),
               const SizedBox(height: 8),
@@ -1273,34 +1289,92 @@ class _KenmerkRij extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+    final actief = aantal > 0;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: actief ? const Color(0xFFE7F6EC) : const Color(0xFFF5F6F8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: actief ? const Color(0xFFA5D6A7) : const Color(0xFFE4E6EA),
+          width: actief ? 1.4 : 1,
+        ),
+      ),
       child: Row(
         children: [
           Expanded(
-            child: Text(label,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: aantal > 0 ? null : Colors.black54)),
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: actief ? FontWeight.w600 : FontWeight.normal,
+                    color: actief ? const Color(0xFF1B5E20) : Colors.black87,
+                  ),
+            ),
           ),
-          IconButton(
-            icon: const Icon(Icons.remove_circle_outline),
-            onPressed: aantal > 0 ? () => onChanged(aantal - 1) : null,
-            visualDensity: VisualDensity.compact,
+          _RondeKnop(
+            icon: Icons.remove,
+            onTap: actief ? () => onChanged(aantal - 1) : null,
           ),
-          SizedBox(
-            width: 28,
-            child: Text('$aantal',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight:
-                        aantal > 0 ? FontWeight.bold : FontWeight.normal)),
+          Container(
+            width: 34,
+            alignment: Alignment.center,
+            child: Text(
+              '$aantal',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+                color: actief ? const Color(0xFF2E7D32) : Colors.black38,
+              ),
+            ),
           ),
-          IconButton(
-            icon: const Icon(Icons.add_circle_outline),
-            onPressed: () => onChanged(aantal + 1),
-            visualDensity: VisualDensity.compact,
+          _RondeKnop(
+            icon: Icons.add,
+            onTap: () => onChanged(aantal + 1),
+            primair: true,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Ronde +/- knop voor de kenmerk-teller.
+class _RondeKnop extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool primair;
+  const _RondeKnop({required this.icon, this.onTap, this.primair = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    final bg = !enabled
+        ? const Color(0xFFECEDEF)
+        : primair
+            ? const Color(0xFF2E7D32)
+            : Colors.white;
+    final fg = !enabled
+        ? Colors.black26
+        : primair
+            ? Colors.white
+            : const Color(0xFF2E7D32);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Material(
+        color: bg,
+        shape: const CircleBorder(),
+        elevation: enabled && primair ? 1 : 0,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            width: 36,
+            height: 36,
+            child: Icon(icon, size: 20, color: fg),
+          ),
+        ),
       ),
     );
   }
