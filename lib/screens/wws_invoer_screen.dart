@@ -14,12 +14,15 @@ class WwsInvoerScreen extends StatefulWidget {
   final WwsInvoerData initialData;
   /// Pre-gevulde WOZ-waarde vanuit de WOZ-lookup op het startscherm.
   final int? wozVoorgevuld;
+  /// Pre-gevuld bouwjaar vanuit de BAG-lookup op het startscherm.
+  final int? bouwjaarVoorgevuld;
 
   const WwsInvoerScreen({
     Key? key,
     required this.dossierNaam,
     required this.initialData,
     this.wozVoorgevuld,
+    this.bouwjaarVoorgevuld,
   }) : super(key: key);
 
   @override
@@ -43,6 +46,10 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
     final wozVoor = widget.wozVoorgevuld;
     if (wozVoor != null && wozVoor > 0 && opname.wozWaarde == 0.0) {
       opname = opname.copyWith(wozWaarde: wozVoor.toDouble());
+    }
+    final bouwjaarVoor = widget.bouwjaarVoorgevuld;
+    if (bouwjaarVoor != null && bouwjaarVoor > 0 && opname.bouwjaar == 0) {
+      opname = opname.copyWith(bouwjaar: bouwjaarVoor);
     }
     _opname = opname;
 

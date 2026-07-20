@@ -51,4 +51,25 @@ class WwsInvoerData {
     }
     return 'WWS: ja';
   }
+
+  Map<String, dynamic> toJson() => {
+        'toepassen': toepassen,
+        'punten': punten,
+        'maxHuur': maxHuur,
+        'wozWaarde': wozWaarde,
+        'wozJaar': wozJaar,
+        if (opnameData != null) 'opnameData': opnameData!.toJson(),
+      };
+
+  factory WwsInvoerData.fromJson(Map<String, dynamic> json) => WwsInvoerData(
+        toepassen: json['toepassen'] as bool? ?? false,
+        punten: json['punten'] as String? ?? '',
+        maxHuur: json['maxHuur'] as String? ?? '',
+        wozWaarde: json['wozWaarde'] as String? ?? '',
+        wozJaar: json['wozJaar'] as String? ?? '2026',
+        opnameData: json['opnameData'] != null
+            ? WwsOpnameData.fromJson(
+                Map<String, dynamic>.from(json['opnameData'] as Map))
+            : null,
+      );
 }

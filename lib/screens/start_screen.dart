@@ -68,7 +68,45 @@ class _StartScreenState extends State<StartScreen> {
     _loadSavedDossiers();
     _loadLookupSettings();
     _loadOpdrachtgevers();
+    _loadWwsPerAdres();
     _syncOpdrachtgevers(silent: true);
+  }
+
+  static const String _kWwsPerAdres = 'wws_per_adres_v1';
+
+  /// Laadt de per-adres bewaarde WWS-invoer van schijf (overleeft app-herstart).
+  Future<void> _loadWwsPerAdres() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kWwsPerAdres);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      final loaded = <String, WwsInvoerData>{};
+      decoded.forEach((key, value) {
+        loaded[key] =
+            WwsInvoerData.fromJson(Map<String, dynamic>.from(value as Map));
+      });
+      if (!mounted) return;
+      setState(() {
+        _wwsPerAdres
+          ..clear()
+          ..addAll(loaded);
+      });
+    } catch (_) {
+      // Corrupte opslag negeren; niet crashen op opstart.
+    }
+  }
+
+  /// Bewaart de per-adres WWS-invoer op schijf.
+  Future<void> _saveWwsPerAdres() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final map = _wwsPerAdres
+          .map((key, value) => MapEntry(key, value.toJson()));
+      await prefs.setString(_kWwsPerAdres, jsonEncode(map));
+    } catch (_) {
+      // Opslagfout stil negeren.
+    }
   }
 
   Future<void> _loadOpdrachtgevers() async {
@@ -1445,6 +1483,9 @@ class _StartScreenState extends State<StartScreen> {
           dossierNaam: _bagData!.getFolderName(),
           initialData: initial,
           wozVoorgevuld: _wozWaarde,
+          bouwjaarVoorgevuld: int.tryParse(
+            (_bagData!.oorspronkelijkBouwjaar ?? '').trim(),
+          ),
         ),
       ),
     );
@@ -1454,6 +1495,8 @@ class _StartScreenState extends State<StartScreen> {
     setState(() {
       _wwsPerAdres[key] = result;
     });
+    await _saveWwsPerAdres();
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('WWS bijgewerkt: ${result.korteStatus}')),
     );
