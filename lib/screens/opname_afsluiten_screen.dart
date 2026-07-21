@@ -150,8 +150,24 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     // Titel = leesbaar adres (niet het dossiernummer), zodat de eenheid in het
     // dashboard op adres verschijnt i.p.v. een nummer.
     final adresTitel = bagData.getFolderName().trim();
+    // Losse adresvelden zijn VERPLICHT bij een app-intake (contract §3.3,
+    // v0.62.1): het portaal draait hierop voor de weergavenaam, pand-
+    // groepering, WOZ-verversen en de EP-Online-labelbewaking. Alleen een
+    // samengeplakte `titel` is niet genoeg — de eenheid komt dan zonder naam
+    // in het dashboard.
+    final straat = _adresVeld(bagData.adres);
+    final huisnr = _adresVeld(bagData.huisnummer);
+    final toev = _adresVeld(bagData.huisletterHuisnummertoevoeging);
+    final postcode = _adresVeld(bagData.postcode);
+    final plaats = _adresVeld(bagData.plaatsnaam);
+
     final fields = <String, String>{
       'titel': adresTitel.isNotEmpty ? adresTitel : widget.dossierName,
+      if (straat != null) 'straat': straat,
+      if (huisnr != null) 'huisnr': huisnr,
+      if (toev != null) 'toev': toev,
+      if (postcode != null) 'postcode': postcode,
+      if (plaats != null) 'plaats': plaats,
       if ((bagData.bagPandId ?? '').trim().isNotEmpty)
         'pand': (bagData.bagPandId ?? '').trim(),
       if (_wwsData.toepassen && _wwsData.wozWaarde.trim().isNotEmpty)
@@ -159,13 +175,18 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       'wws_actief': _wwsData.toepassen ? '1' : '0',
     };
 
+    // Wat er van het WWS meegaat, zodat we het achteraf kunnen terugzien.
+    var wwsVerstuurd = 'niet gekoppeld';
     if (_wwsData.toepassen) {
       final opname = _wwsData.opnameData;
       if (opname != null) {
         // Contract §3.9: stuur het WWS als dossier in de INVOER-vorm (§3.2).
         // De server herrekent zelf wws_punten en huur_max uit dit dossier,
         // dus die sturen we NIET mee (server is de rekenmeester).
-        fields['wws_dossier'] = jsonEncode(opname.toApiJson());
+        final dossier = opname.toApiJson();
+        fields['wws_dossier'] = jsonEncode(dossier);
+        final aantalRuimtes = opname.binnenruimtes.length;
+        wwsVerstuurd = 'dossier verstuurd ($aantalRuimtes ruimtes)';
       } else {
         // Terugval als de volledige invoer ontbreekt: stuur de bekende
         // getallen mee zodat de eenheid toch punten/huur toont.
@@ -175,6 +196,9 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         if (_wwsData.maxHuur.trim().isNotEmpty) {
           fields['huur_max'] = _wwsMaxHuurController.text.trim();
         }
+        wwsVerstuurd = _wwsData.punten.trim().isNotEmpty
+            ? 'alleen punten (${_wwsData.punten.trim()}), geen dossier'
+            : 'LEEG — geen invoer gevonden, website kan niets rekenen';
       }
     }
 
@@ -202,13 +226,44 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       );
     }
 
-    final wwsInfo = _wwsData.toepassen
-        ? 'WWS gekoppeld${_wwsData.punten.trim().isNotEmpty ? ' (${_wwsData.punten.trim()} pt)' : ''}'
-        : 'WWS niet gekoppeld';
-    final verhuurInfo = _verhuurNaarObject
-        ? 'verhuur: ja'
-        : 'verhuur: nee';
-    return 'Object gekoppeld aan website. $wwsInfo, $verhuurInfo.';
+    // Antwoord van de website erbij: zo zie je meteen of daar een naam en een
+    // puntentelling uit gerold zijn, in plaats van het pas op de site te
+    // ontdekken.
+    final serverAdres = (created['adres'] ?? '').toString().trim();
+    final serverWws = (created['wws'] ?? '').toString().trim();
+    final verhuurInfo = _verhuurNaarObject ? 'ja' : 'nee';
+
+    return <String>[
+      'Object gekoppeld aan website.',
+      'Naam op site: ${serverAdres.isNotEmpty ? serverAdres : '(leeg!)'}',
+      'WWS verstuurd: $wwsVerstuurd',
+      'WWS-punten volgens site: '
+          '${serverWws.isNotEmpty && serverWws != '0' ? serverWws : '(leeg!)'}',
+      'Verhuurgegevens meegestuurd: $verhuurInfo',
+    ].join('\n');
+  }
+
+  /// Korte melding onder de WWS-schakelaar: staat er invoer klaar die de
+  /// website kan doorrekenen, of gaat er straks niets mee?
+  String _wwsDossierStatus() {
+    final opname = _wwsData.opnameData;
+    if (opname == null) {
+      return 'Geen WWS-invoer gevonden voor dit adres';
+    }
+    final ruimtes = opname.binnenruimtes.length;
+    final punten = _wwsData.punten.trim();
+    return 'WWS-invoer klaar: $ruimtes ruimtes'
+        '${punten.isNotEmpty ? ', $punten punten in de app' : ''}';
+  }
+
+  /// Adresveld schoonmaken; geeft null terug als er niets bruikbaars staat
+  /// (leeg, "-" of het BAG-antwoord "unknown").
+  String? _adresVeld(String? waarde) {
+    final schoon = (waarde ?? '').trim();
+    if (schoon.isEmpty || schoon == '-' || schoon.toLowerCase() == 'unknown') {
+      return null;
+    }
+    return schoon;
   }
 
   void _dismissKeyboard() {
@@ -945,6 +1000,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('WWS koppelen aan object'),
+              subtitle: Text(_wwsDossierStatus()),
               value: _wwsData.toepassen,
               onChanged: _isSaving
                   ? null
@@ -954,6 +1010,19 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
                       });
                     },
             ),
+            if (_wwsData.toepassen && _wwsData.opnameData == null)
+              Card(
+                color: Colors.orange.shade50,
+                child: const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'Let op: er is geen WWS-invoer gevonden voor dit adres. '
+                    'De website krijgt dan geen dossier en kan geen punten '
+                    'berekenen. Ga terug naar het startscherm, vul het WWS in '
+                    'via de tegel "WWS", en sluit de opname daarna opnieuw af.',
+                  ),
+                ),
+              ),
             if (_wwsData.toepassen) ...[
               TextField(
                 controller: _wwsPuntenController,
