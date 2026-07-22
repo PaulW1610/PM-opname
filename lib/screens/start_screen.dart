@@ -14,6 +14,7 @@ import '../services/bag_service.dart';
 import '../services/blueprint_api_service.dart';
 import '../services/location_service.dart';
 import '../services/opdrachtgever_service.dart';
+import '../services/pdok_locatieserver_service.dart';
 import '../theme/brand.dart';
 import 'beslisschemas_screen.dart';
 import 'instellingen_screen.dart';
@@ -1179,6 +1180,106 @@ class _StartScreenState extends State<StartScreen> {
     return collected;
   }
 
+  /// Hoeveel verschillende huisnummers we maximaal bij BAG navragen na een
+  /// PDOK-treffer. Eén verzoek per huisnummer levert al alle appartementen.
+  static const int _maxBagGroepenViaPdok = 3;
+
+  /// Huisletter + toevoeging als vergelijkbare sleutel ("a1", "h", "").
+  String _toevoegingSleutel(String? huisletter, String? toevoeging) {
+    return [huisletter, toevoeging]
+        .whereType<String>()
+        .join()
+        .replaceAll(RegExp(r'[\s-]'), '')
+        .toLowerCase();
+  }
+
+  /// Adres bepalen bij een GPS-punt via de PDOK Locatieserver.
+  ///
+  /// PDOK zegt wélk adres je voor je hebt (op afstand gesorteerd, met
+  /// huisletter en toevoeging); BAG levert daarna de inhoud (bouwjaar,
+  /// oppervlakte, pand-id). Lege lijst = PDOK wist niets, dan valt de
+  /// aanroeper terug op de oude route via het besturingssysteem.
+  Future<List<BagData>> _bagKandidatenViaPdok({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final pdokAdressen = await PdokLocatieserverService.adressenBijCoordinaten(
+      latitude: latitude,
+      longitude: longitude,
+      aantal: 12,
+    );
+    if (pdokAdressen.isEmpty) {
+      return const <BagData>[];
+    }
+
+    // Per postcode+huisnummer één BAG-verzoek.
+    final bagPerHuisnummer = <String, List<BagData>>{};
+    for (final adres in pdokAdressen) {
+      final sleutel = adres.postcodeHuisnummerSleutel;
+      if (bagPerHuisnummer.containsKey(sleutel)) {
+        continue;
+      }
+      if (bagPerHuisnummer.length >= _maxBagGroepenViaPdok) {
+        break;
+      }
+      try {
+        bagPerHuisnummer[sleutel] =
+            await BagService.lookupCandidatesByAddressExact(
+          adres.postcode,
+          adres.huisnummer ?? '',
+          _bagApiKey,
+        ).timeout(const Duration(seconds: 12));
+      } catch (_) {
+        bagPerHuisnummer[sleutel] = const <BagData>[];
+      }
+    }
+
+    // In PDOK-volgorde teruggeven: dichtstbijzijnde adres bovenaan.
+    final resultaat = <BagData>[];
+    final gezien = <String>{};
+    for (final adres in pdokAdressen) {
+      final woningen = bagPerHuisnummer[adres.postcodeHuisnummerSleutel];
+      if (woningen == null) {
+        continue;
+      }
+
+      BagData? treffer;
+      for (final woning in woningen) {
+        final woningSleutel = _toevoegingSleutel(
+          woning.huisletter,
+          woning.huisnummertoevoeging,
+        );
+        if (woningSleutel == adres.toevoegingSleutel) {
+          treffer = woning;
+          break;
+        }
+      }
+
+      // Geen BAG-treffer (bijv. adres net buiten de BAG-selectie): dan tonen
+      // we wat PDOK weet, zodat de woning niet uit de lijst verdwijnt.
+      final kandidaat = treffer ??
+          BagData(
+            adres: adres.straat,
+            huisnummer: adres.huisnummer,
+            huisletter: adres.huisletter,
+            huisnummertoevoeging: adres.huisnummertoevoeging,
+            huisletterHuisnummertoevoeging: [
+              adres.huisletter,
+              adres.huisnummertoevoeging,
+            ].whereType<String>().join(),
+            postcode: adres.postcode,
+            plaatsnaam: adres.plaats ?? '',
+            bagAdresId: adres.nummeraanduidingId,
+          );
+
+      if (gezien.add(_candidateIdentityKey(kandidaat))) {
+        resultaat.add(kandidaat);
+      }
+    }
+
+    return resultaat;
+  }
+
   Future<void> _searchBagByManualPair() async {
     if (_isLoading) return;
 
@@ -1323,14 +1424,39 @@ class _StartScreenState extends State<StartScreen> {
       BagData? selectedBagData;
       List<BagData> candidateBagData = <BagData>[];
       final candidateNearestRank = <String, int>{};
-      List<Placemark> placemarks = const <Placemark>[];
+
+      // Eerst de Nederlandse route: PDOK weet welk adres bij dit punt hoort,
+      // inclusief appartementen op hetzelfde huisnummer. Lukt dat, dan is de
+      // hele omweg hieronder (reverse geocoding van het besturingssysteem plus
+      // het bijzoeken van buurhuisnummers) niet nodig.
       try {
-        placemarks = await placemarkFromCoordinates(
-          pos.latitude,
-          pos.longitude,
-        ).timeout(const Duration(seconds: 12));
+        final pdokKandidaten = await _bagKandidatenViaPdok(
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+        );
+        if (fetchId != _activeFetchId || !mounted) return;
+        if (pdokKandidaten.isNotEmpty) {
+          candidateBagData = List<BagData>.from(pdokKandidaten);
+          selectedBagData = pdokKandidaten.first;
+          for (var index = 0; index < pdokKandidaten.length; index++) {
+            candidateNearestRank[_candidateIdentityKey(pdokKandidaten[index])] =
+                index;
+          }
+        }
       } catch (_) {
-        placemarks = const <Placemark>[];
+        // PDOK onbereikbaar: stilletjes doorvallen naar de oude route.
+      }
+
+      List<Placemark> placemarks = const <Placemark>[];
+      if (candidateBagData.isEmpty) {
+        try {
+          placemarks = await placemarkFromCoordinates(
+            pos.latitude,
+            pos.longitude,
+          ).timeout(const Duration(seconds: 12));
+        } catch (_) {
+          placemarks = const <Placemark>[];
+        }
       }
       if (fetchId != _activeFetchId || !mounted) return;
       final placemark = placemarks.isNotEmpty ? placemarks.first : null;
@@ -1345,26 +1471,41 @@ class _StartScreenState extends State<StartScreen> {
             placemark?.administrativeArea ??
             'Locatie',
       );
+      // Invulvelden vullen: kwam het adres van PDOK, dan is dat de betere bron.
+      final pdokTreffer = selectedBagData;
+      final pdokGelukt = candidateBagData.isNotEmpty && pdokTreffer != null;
+      final invulBron = pdokGelukt ? pdokTreffer : gpsAddressCandidate;
       if (_manualAddressController.text.trim().isEmpty) {
-        _manualAddressController.text = _formatBagCandidate(gpsAddressCandidate);
+        _manualAddressController.text = _formatBagCandidate(invulBron);
       }
 
-      final postcode = _extractPostcode(placemark);
-      final huisnummer = _extractHouseNumberFallback(placemark);
+      final postcode = pdokGelukt
+          ? invulBron.postcode.trim()
+          : _extractPostcode(placemark);
+      final huisnummer = pdokGelukt
+          ? (invulBron.huisnummer ?? '').trim()
+          : _extractHouseNumberFallback(placemark);
       if (_manualPostcodeController.text.trim().isEmpty && postcode.isNotEmpty) {
         _manualPostcodeController.text = postcode;
       }
       if (_manualHuisnummerController.text.trim().isEmpty && huisnummer.isNotEmpty) {
         _manualHuisnummerController.text = huisnummer;
       }
-      final sampledPlacemarkBatches = await _sampleNearbyPlacemarkBatches(
-        latitude: pos.latitude,
-        longitude: pos.longitude,
-      );
-      final lookupPairs = await _collectLookupPairsAroundPosition(
-        seedPlacemarks: placemarks,
-        sampledPlacemarkBatches: sampledPlacemarkBatches,
-      );
+
+      // De oude omweg — buurhuisnummers bijzoeken via reverse geocoding van het
+      // besturingssysteem — draait alleen nog als PDOK niets opleverde.
+      var sampledPlacemarkBatches = const <MapEntry<int, List<Placemark>>>[];
+      var lookupPairs = const <MapEntry<String, String>>[];
+      if (candidateBagData.isEmpty) {
+        sampledPlacemarkBatches = await _sampleNearbyPlacemarkBatches(
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+        );
+        lookupPairs = await _collectLookupPairsAroundPosition(
+          seedPlacemarks: placemarks,
+          sampledPlacemarkBatches: sampledPlacemarkBatches,
+        );
+      }
 
       if (lookupPairs.isNotEmpty) {
         try {

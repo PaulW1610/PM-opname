@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter analyze *)",
+      "Bash(flutter test *)",
+      "Bash(flutter test)",
+      "Bash(flutter build *)",
+      "Bash(flutter run *)",
+      "Bash(flutter run)",
+      "Bash(flutter devices)",
+      "Bash(flutter doctor *)",
+      "Bash(flutter doctor)",
+      "Bash(flutter pub get)",
+      "Bash(flutter clean)",
+      "Bash(xcrun devicectl list *)",
+      "Bash(xcrun devicectl device install *)",
+      "Bash(xcrun devicectl device launch *)",
+      "Bash(xcrun devicectl device info *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}
