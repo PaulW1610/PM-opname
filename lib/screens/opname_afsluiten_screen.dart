@@ -147,9 +147,6 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       return 'Websitekoppeling overgeslagen: geen Blueprint credentials in Instellingen.';
     }
 
-    // Titel = leesbaar adres (niet het dossiernummer), zodat de eenheid in het
-    // dashboard op adres verschijnt i.p.v. een nummer.
-    final adresTitel = bagData.getFolderName().trim();
     // Losse adresvelden zijn VERPLICHT bij een app-intake (contract §3.3,
     // v0.62.1): het portaal draait hierop voor de weergavenaam, pand-
     // groepering, WOZ-verversen en de EP-Online-labelbewaking. Alleen een
@@ -161,8 +158,17 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     final postcode = _adresVeld(bagData.postcode);
     final plaats = _adresVeld(bagData.plaatsnaam);
 
+    // Contract §3.3: sturen we straat + huisnummer mee, dan MAG `titel` weg en
+    // maakt de site de naam zelf ("straat huisnr toev"). We laten `titel` dan
+    // bewust weg, zodat een meegestuurde titel de automatische naamgeving niet
+    // kan overrulen. Alleen als het adres onbekend is valt de app terug op een
+    // titel, anders heet de eenheid op de site "Nieuwe eenheid".
+    final heeftAdres = straat != null && huisnr != null;
+    final adresTitel = bagData.getFolderName().trim();
+
     final fields = <String, String>{
-      'titel': adresTitel.isNotEmpty ? adresTitel : widget.dossierName,
+      if (!heeftAdres)
+        'titel': adresTitel.isNotEmpty ? adresTitel : widget.dossierName,
       if (straat != null) 'straat': straat,
       if (huisnr != null) 'huisnr': huisnr,
       if (toev != null) 'toev': toev,
@@ -233,9 +239,21 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     final serverWws = (created['wws'] ?? '').toString().trim();
     final verhuurInfo = _verhuurNaarObject ? 'ja' : 'nee';
 
+    // Een naam die alleen uit cijfers bestaat (of leeg is) betekent dat de site
+    // de losse adresvelden niet heeft verwerkt — meestal een oudere plugin dan
+    // v0.62.1. Meld dat meteen op locatie, met de link om het na te kijken.
+    final naamOnbruikbaar =
+        serverAdres.isEmpty || RegExp(r'^[0-9]+$').hasMatch(serverAdres);
+    final serverUrl = (created['url'] ?? '').toString().trim();
+
     return <String>[
       'Object gekoppeld aan website.',
       'Naam op site: ${serverAdres.isNotEmpty ? serverAdres : '(leeg!)'}',
+      if (naamOnbruikbaar)
+        'LET OP: de site heeft de adresvelden niet verwerkt '
+            '(verstuurd: ${[straat, huisnr, toev].whereType<String>().join(' ')}). '
+            'Waarschijnlijk draait de website nog op een plugin ouder dan v0.62.1.',
+      if (serverUrl.isNotEmpty) 'Link: $serverUrl',
       'WWS verstuurd: $wwsVerstuurd',
       'WWS-punten volgens site: '
           '${serverWws.isNotEmpty && serverWws != '0' ? serverWws : '(leeg!)'}',
