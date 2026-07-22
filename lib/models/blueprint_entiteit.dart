@@ -33,6 +33,17 @@ class BlueprintEntiteit {
   final String url;
   final bool heeftXml;
 
+  /// Geregistreerd energielabel volgens de dagelijkse EP-Online-bewaking van
+  /// de server (contract §3.1b/§3.7, plugin v0.62).
+  final String? epLabel;
+
+  /// Datum tot wanneer dat label geldig is (JJJJ-MM-DD).
+  final String? epGeldigTot;
+
+  /// `""` (nog niet gecheckt) · `ok` · `verloopt_binnenkort` (< 6 maanden) ·
+  /// `verlopen`.
+  final String? epStatus;
+
   const BlueprintEntiteit({
     required this.id,
     required this.titel,
@@ -47,7 +58,28 @@ class BlueprintEntiteit {
     this.updatedAt,
     required this.url,
     this.heeftXml = false,
+    this.epLabel,
+    this.epGeldigTot,
+    this.epStatus,
   });
+
+  /// Verlopen of binnen een half jaar aflopend label — dan hoort de app een
+  /// duidelijke waarschuwing te tonen (contract §3.1b): het sein om een
+  /// nieuwe opname in te plannen.
+  bool get labelVraagtAandacht =>
+      epStatus == 'verlopen' || epStatus == 'verloopt_binnenkort';
+
+  /// Korte waarschuwingstekst; leeg als er niets aan de hand is.
+  String get labelWaarschuwing {
+    switch (epStatus) {
+      case 'verlopen':
+        return 'Energielabel verlopen';
+      case 'verloopt_binnenkort':
+        return 'Label verloopt binnenkort';
+      default:
+        return '';
+    }
+  }
 
   factory BlueprintEntiteit.fromJson(Map<String, dynamic> json) =>
       BlueprintEntiteit(
@@ -64,6 +96,9 @@ class BlueprintEntiteit {
         updatedAt: json['updated_at'] as String?,
         url: json['url'] as String? ?? '',
         heeftXml: json['heeft_xml'] as bool? ?? false,
+        epLabel: json['ep_label'] as String?,
+        epGeldigTot: json['ep_geldig_tot'] as String?,
+        epStatus: json['ep_status'] as String?,
       );
 }
 

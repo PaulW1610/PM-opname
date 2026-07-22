@@ -25,6 +25,15 @@ class _PortefeuilleSchermState extends State<PortefeuilleScherm> {
     _checkCredentialsAndLoad();
   }
 
+  /// "2027-03-14" → "14-03-2027"; onbekende vormen laten we ongemoeid.
+  String _datumKort(String isoDatum) {
+    final delen = isoDatum.split('T').first.split('-');
+    if (delen.length != 3) {
+      return isoDatum;
+    }
+    return '${delen[2]}-${delen[1]}-${delen[0]}';
+  }
+
   Future<void> _checkCredentialsAndLoad() async {
     try {
       final config = await BlueprintApiService.loadConfig();
@@ -179,7 +188,51 @@ class _PortefeuilleSchermState extends State<PortefeuilleScherm> {
                       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       child: ListTile(
                         title: Text(e.titel),
-                        subtitle: Text('${e.adres}, ${e.plaats}'),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('${e.adres}, ${e.plaats}'),
+                            // De server bewaakt dagelijks de geldigheid bij
+                            // EP-Online; verlopen of bijna verlopen labels
+                            // zijn het sein om een nieuwe opname te plannen.
+                            if (e.labelVraagtAandacht)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      e.epStatus == 'verlopen'
+                                          ? Icons.error_outline
+                                          : Icons.schedule,
+                                      size: 15,
+                                      color: e.epStatus == 'verlopen'
+                                          ? Colors.red.shade700
+                                          : Colors.orange.shade800,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        e.epGeldigTot != null &&
+                                                e.epGeldigTot!.isNotEmpty
+                                            ? '${e.labelWaarschuwing} '
+                                                '(t/m ${_datumKort(e.epGeldigTot!)})'
+                                            : e.labelWaarschuwing,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: e.epStatus == 'verlopen'
+                                              ? Colors.red.shade700
+                                              : Colors.orange.shade800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
                         trailing: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.end,
