@@ -16,14 +16,14 @@ class AppSecrets {
 
   /// BAG (Kadaster) API-key voor adres-/pandbevragingen.
   ///
-  /// Deze key is publiek (read-only adresbevragingen) en staat bewust als
-  /// werkende default zodat de app in ELKE build-route werkt (ook een directe
-  /// Xcode-build die geen --dart-define meegeeft). Te overschrijven via
-  /// --dart-define=BAG_API_KEY=... of tool/dart_defines.json.
-  static const String bagApiKey = String.fromEnvironment(
-    'BAG_API_KEY',
-    defaultValue: 'l79175a82fbd564ef8b7ac64e4b7857001',
-  );
+  /// GEEN ingebakken standaardwaarde: de sleutel staat op naam van Paul bij
+  /// het Kadaster (met een dagelijkse bevragingslimiet) en de repo is
+  /// openbaar. Hij komt uitsluitend uit `tool/dart_defines.json` (gitignored);
+  /// `tool/run_ios.sh` en `tool/build_testflight.sh` geven dat bestand mee.
+  ///
+  /// Bouw je rechtstreeks vanuit Xcode zonder dart-defines, dan is deze leeg
+  /// en meldt het startscherm dat de sleutel ontbreekt — zie [hasBagApiKey].
+  static const String bagApiKey = String.fromEnvironment('BAG_API_KEY');
 
   /// Dropbox App key (public client id) voor de OAuth2 PKCE-flow.
   static const String dropboxAppKey =

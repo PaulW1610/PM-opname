@@ -1280,8 +1280,29 @@ class _StartScreenState extends State<StartScreen> {
     return resultaat;
   }
 
+  /// Meldt het als de BAG-sleutel ontbreekt (build zonder dart-defines).
+  ///
+  /// Zonder deze melding zou het adres ophalen stil niets opleveren en ga je
+  /// op locatie een fout zoeken die er niet is.
+  bool _bagSleutelOntbreekt() {
+    if (AppSecrets.hasBagApiKey) {
+      return false;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Geen BAG-sleutel in deze build. Bouw via tool/run_ios.sh of '
+          'tool/build_testflight.sh — die geven tool/dart_defines.json mee.',
+        ),
+        duration: Duration(seconds: 6),
+      ),
+    );
+    return true;
+  }
+
   Future<void> _searchBagByManualPair() async {
     if (_isLoading) return;
+    if (_bagSleutelOntbreekt()) return;
 
     final postcode =
         _manualPostcodeController.text.replaceAll(RegExp(r'\s+'), '').toUpperCase();
@@ -1370,6 +1391,7 @@ class _StartScreenState extends State<StartScreen> {
   /// Fetch GPS location and lookup BAG address data.
   Future<void> _fetchAddress() async {
     if (_isLoading) return;
+    if (!kIsWeb && _bagSleutelOntbreekt()) return;
     final fetchId = ++_activeFetchId;
 
     final latestRadius = await AppSettingsService.loadGpsBagRadiusMeters();

@@ -12,7 +12,9 @@ import 'package:photo_organizer_app/main.dart';
 void main() {
   testWidgets('StartScreen smoke test', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
-    expect(find.text('PM Realestate Data & Visuals'), findsWidgets);
-    expect(find.text('Ophalen Adres'), findsOneWidget);
+    // Namen zoals ze sinds de huisstijlwijziging van 20 juli 2026 in beeld
+    // staan; de test bleef hangen op de oude naam en faalde daardoor.
+    expect(find.text('blueprint collective'), findsWidgets);
+    expect(find.text('Adres ophalen'), findsWidgets);
   });
 }
