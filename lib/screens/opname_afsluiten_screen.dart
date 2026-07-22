@@ -235,24 +235,53 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     // Antwoord van de website erbij: zo zie je meteen of daar een naam en een
     // puntentelling uit gerold zijn, in plaats van het pas op de site te
     // ontdekken.
-    final serverAdres = (created['adres'] ?? '').toString().trim();
+    var serverAdres = (created['adres'] ?? '').toString().trim();
     final serverWws = (created['wws'] ?? '').toString().trim();
     final verhuurInfo = _verhuurNaarObject ? 'ja' : 'nee';
+    var reparatie = '';
 
-    // Een naam die alleen uit cijfers bestaat (of leeg is) betekent dat de site
-    // de losse adresvelden niet heeft verwerkt — meestal een oudere plugin dan
-    // v0.62.1. Meld dat meteen op locatie, met de link om het na te kijken.
-    final naamOnbruikbaar =
-        serverAdres.isEmpty || RegExp(r'^[0-9]+$').hasMatch(serverAdres);
+    // De site noemde eenheden tot nu toe naar de 16-cijferige BAG-pandcode die
+    // wij als `pand` meesturen, in plaats van naar het adres. Zolang dat aan de
+    // websitekant niet is opgelost repareren we het zelf: is de naam leeg of
+    // puur numeriek, dan sturen we in één extra bewerking (§3.3, POST op
+    // /entiteit/{id}) de adresvelden nogmaals mee mét een expliciete `titel`.
+    if (entiteitId != null && _naamOnbruikbaar(serverAdres)) {
+      final herstelTitel =
+          adresTitel.isNotEmpty ? adresTitel : widget.dossierName;
+      try {
+        final hersteld = await BlueprintApiService.updateEntiteit(
+          id: entiteitId,
+          fields: <String, String>{
+            'titel': herstelTitel,
+            if (straat != null) 'straat': straat,
+            if (huisnr != null) 'huisnr': huisnr,
+            if (toev != null) 'toev': toev,
+            if (postcode != null) 'postcode': postcode,
+            if (plaats != null) 'plaats': plaats,
+          },
+        );
+        final naNaam = (hersteld['adres'] ?? '').toString().trim();
+        if (!_naamOnbruikbaar(naNaam)) {
+          serverAdres = naNaam;
+          reparatie = 'Naam stond eerst verkeerd (nummer) en is door de app '
+              'hersteld naar "$naNaam".';
+        } else {
+          reparatie =
+              'LET OP: de site blijft de eenheid een nummer noemen, ook na '
+              'een herstelpoging met adres "$herstelTitel". Dit moet aan de '
+              'websitekant opgelost worden — meld het even.';
+        }
+      } on Exception catch (e) {
+        reparatie = 'Naam herstellen mislukte: $e';
+      }
+    }
+
     final serverUrl = (created['url'] ?? '').toString().trim();
 
     return <String>[
       'Object gekoppeld aan website.',
       'Naam op site: ${serverAdres.isNotEmpty ? serverAdres : '(leeg!)'}',
-      if (naamOnbruikbaar)
-        'LET OP: de site heeft de adresvelden niet verwerkt '
-            '(verstuurd: ${[straat, huisnr, toev].whereType<String>().join(' ')}). '
-            'Waarschijnlijk draait de website nog op een plugin ouder dan v0.62.1.',
+      if (reparatie.isNotEmpty) reparatie,
       if (serverUrl.isNotEmpty) 'Link: $serverUrl',
       'WWS verstuurd: $wwsVerstuurd',
       'WWS-punten volgens site: '
@@ -276,6 +305,13 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
 
   /// Adresveld schoonmaken; geeft null terug als er niets bruikbaars staat
   /// (leeg, "-" of het BAG-antwoord "unknown").
+  /// Een naam die leeg is of alleen uit cijfers bestaat (zoals de 16-cijferige
+  /// BAG-pandcode) is geen adres — die willen we op de site niet zien staan.
+  bool _naamOnbruikbaar(String naam) {
+    final schoon = naam.trim();
+    return schoon.isEmpty || RegExp(r'^[0-9]+$').hasMatch(schoon);
+  }
+
   String? _adresVeld(String? waarde) {
     final schoon = (waarde ?? '').trim();
     if (schoon.isEmpty || schoon == '-' || schoon.toLowerCase() == 'unknown') {
