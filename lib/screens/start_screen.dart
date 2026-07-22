@@ -263,6 +263,11 @@ class _StartScreenState extends State<StartScreen> {
               'openbareRuimteNaam': item.adres,
               'huisnummer': item.huisnummer,
               'huisletterHuisnummertoevoeging': item.huisletterHuisnummertoevoeging,
+              // Los bewaren, anders zijn "79-1" en "79 A1" na herladen weer
+              // niet uit elkaar te houden.
+              'huisletter': item.huisletter,
+              'huisnummertoevoeging': item.huisnummertoevoeging,
+              'oppervlakte': item.oppervlakte,
               'postcode': item.postcode,
               'plaatsnaam': item.plaatsnaam,
               'identificatie': item.bagAdresId,
@@ -384,6 +389,11 @@ class _StartScreenState extends State<StartScreen> {
               'openbareRuimteNaam': item.adres,
               'huisnummer': item.huisnummer,
               'huisletterHuisnummertoevoeging': item.huisletterHuisnummertoevoeging,
+              // Los bewaren, anders zijn "79-1" en "79 A1" na herladen weer
+              // niet uit elkaar te houden.
+              'huisletter': item.huisletter,
+              'huisnummertoevoeging': item.huisnummertoevoeging,
+              'oppervlakte': item.oppervlakte,
               'postcode': item.postcode,
               'plaatsnaam': item.plaatsnaam,
               'identificatie': item.bagAdresId,
@@ -929,22 +939,35 @@ class _StartScreenState extends State<StartScreen> {
     final isSelected = _isSelectedBagCandidate(candidate);
     final matchesCurrentInput = _matchesCurrentInput(candidate);
 
+    final String status;
     if (isSelected) {
-      return 'Geselecteerd adres';
-    }
-    if (matchesCurrentInput) {
-      return 'Huidige locatie match';
+      status = 'Geselecteerd adres';
+    } else if (matchesCurrentInput) {
+      status = 'Huidige locatie match';
+    } else {
+      switch (_candidateStatusLevel(candidate)) {
+        case 'ok':
+          status = 'Waarschijnlijke match';
+          break;
+        case 'fallback':
+          status = 'Alternatief BAG-adres';
+          break;
+        case 'error':
+        default:
+          status = 'Onzekere match';
+      }
     }
 
-    switch (_candidateStatusLevel(candidate)) {
-      case 'ok':
-        return 'Waarschijnlijke match';
-      case 'fallback':
-        return 'Alternatief BAG-adres';
-      case 'error':
-      default:
-        return 'Onzekere match';
-    }
+    // Oppervlakte en bouwjaar erbij: in een portiek met acht woningen op
+    // hetzelfde huisnummer is de m² het snelste onderscheid.
+    final kenmerken = <String>[
+      if (candidate.oppervlakte != null && candidate.oppervlakte! > 0)
+        '${candidate.oppervlakte} m²',
+      if ((candidate.oorspronkelijkBouwjaar ?? '').trim().isNotEmpty)
+        candidate.oorspronkelijkBouwjaar!.trim(),
+    ];
+
+    return kenmerken.isEmpty ? status : '${kenmerken.join(' · ')} · $status';
   }
 
   String _normalizePostcode(String value) {

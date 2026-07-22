@@ -128,8 +128,23 @@ class BagData {
   /// House number from BAG response.
   final String? huisnummer;
 
-  /// House letter/addition from BAG response.
+  /// Huisletter en huisnummertoevoeging aan elkaar, zoals in dossiernamen en
+  /// op het scherm ("A1" bij huisletter A + toevoeging 1).
+  ///
+  /// BAG houdt deze twee streng gescheiden: "79-1" is huisnummer 79 met
+  /// toevoeging 1, terwijl "79 A1" huisletter A én toevoeging 1 heeft. Dat
+  /// zijn twee verschillende woningen in hetzelfde pand. Bewaar ze daarom ook
+  /// los in [huisletter] en [huisnummertoevoeging].
   final String? huisletterHuisnummertoevoeging;
+
+  /// Huisletter uit BAG (los), bijv. "A".
+  final String? huisletter;
+
+  /// Huisnummertoevoeging uit BAG (los), bijv. "1" of "H".
+  final String? huisnummertoevoeging;
+
+  /// Gebruiksoppervlakte van de woning in m² (uit /adressenuitgebreid).
+  final int? oppervlakte;
 
   /// Postcode from BAG response (e.g., "2101 HL").
   final String postcode;
@@ -172,6 +187,9 @@ class BagData {
     this.adres,
     this.huisnummer,
     this.huisletterHuisnummertoevoeging,
+    this.huisletter,
+    this.huisnummertoevoeging,
+    this.oppervlakte,
     required this.postcode,
     required this.plaatsnaam,
     this.bagIdentificatie,
@@ -185,6 +203,18 @@ class BagData {
     this.opdrachtgever,
     this.opdrachtnummer,
   });
+
+  /// Leest een adresonderdeel en geeft null bij lege of nietszeggende waarden.
+  static String? _schoonAdresDeel(dynamic waarde) {
+    final schoon = (waarde ?? '').toString().trim();
+    if (schoon.isEmpty ||
+        schoon == '-' ||
+        schoon.toLowerCase() == 'null' ||
+        schoon.toLowerCase() == 'unknown') {
+      return null;
+    }
+    return schoon;
+  }
 
   /// Create from JSON response.
   factory BagData.fromJson(Map<String, dynamic> json) {
@@ -203,10 +233,20 @@ class BagData {
       json['adres']?.toString();
     final huisnummer = json['huisnummer']?.toString() ??
       json['huisNummer']?.toString();
-    final huisletterHuisnummertoevoeging =
-        json['huisletterHuisnummertoevoeging']?.toString() ??
-        json['huisnummertoevoeging']?.toString() ??
-        json['huisletter']?.toString();
+    // Huisletter en toevoeging LOS uitlezen en pas daarna samenvoegen. Ze
+    // eerder door elkaar halen maakte "79-1" en "79 A1" onderling
+    // ononderscheidbaar — twee verschillende appartementen die dezelfde
+    // dossier- en fotomap kregen.
+    final huisletter = _schoonAdresDeel(json['huisletter']);
+    final huisnummertoevoeging = _schoonAdresDeel(json['huisnummertoevoeging']);
+    final samengevoegd = [huisletter, huisnummertoevoeging]
+        .whereType<String>()
+        .join();
+    // Terugval op het oude gecombineerde veld, zodat eerder opgeslagen
+    // dossiers (die alleen dat veld bewaren) blijven werken.
+    final huisletterHuisnummertoevoeging = samengevoegd.isNotEmpty
+        ? samengevoegd
+        : _schoonAdresDeel(json['huisletterHuisnummertoevoeging']);
 
     final selfHrefId = (() {
       final links = json['_links'];
@@ -282,8 +322,33 @@ class BagData {
       }
     }
 
-    final oorspronkelijkBouwjaar =
+    // /adressenuitgebreid geeft bouwjaar als lijst (één pand kan meerdere
+    // bouwjaren hebben bij samengevoegde panden); pak dan de eerste.
+    String? oorspronkelijkBouwjaar;
+    final bouwjaarRaw = json['oorspronkelijkBouwjaar'];
+    if (bouwjaarRaw is List && bouwjaarRaw.isNotEmpty) {
+      oorspronkelijkBouwjaar = bouwjaarRaw.first?.toString().trim();
+    }
+    oorspronkelijkBouwjaar ??=
         _findFirstValueByKeys(json, const ['oorspronkelijkBouwjaar', 'bouwjaar']);
+
+    // Gebruiksdoel heet in BAG 'gebruiksdoelen' en is een lijst.
+    String? gebruiksdoel = _schoonAdresDeel(json['gebruiksdoel']);
+    final gebruiksdoelen = json['gebruiksdoelen'];
+    if (gebruiksdoel == null && gebruiksdoelen is List && gebruiksdoelen.isNotEmpty) {
+      gebruiksdoel = gebruiksdoelen
+          .map((e) => e?.toString().trim() ?? '')
+          .where((e) => e.isNotEmpty)
+          .join(', ');
+      if (gebruiksdoel.isEmpty) {
+        gebruiksdoel = null;
+      }
+    }
+
+    final oppervlakteRaw = json['oppervlakte'];
+    final oppervlakte = oppervlakteRaw is num
+        ? oppervlakteRaw.toInt()
+        : int.tryParse((oppervlakteRaw ?? '').toString().trim());
 
     double? latitude;
     double? longitude;
@@ -308,6 +373,9 @@ class BagData {
       adres: adres,
       huisnummer: huisnummer,
       huisletterHuisnummertoevoeging: huisletterHuisnummertoevoeging,
+      huisletter: huisletter,
+      huisnummertoevoeging: huisnummertoevoeging,
+      oppervlakte: oppervlakte,
       postcode: postcode,
       plaatsnaam: plaatsnaam,
       bagIdentificatie: bagIdentificatie,
@@ -315,7 +383,7 @@ class BagData {
       adresseerbaarObjectId: adresseerbaarObjectId,
       bagPandId: bagPandId,
       oorspronkelijkBouwjaar: oorspronkelijkBouwjaar,
-      gebruiksdoel: json['gebruiksdoel']?.toString(),
+      gebruiksdoel: gebruiksdoel,
       latitude: latitude,
       longitude: longitude,
       opdrachtgever: json['opdrachtgever'] is Map
@@ -330,6 +398,9 @@ class BagData {
     String? adres,
     String? huisnummer,
     String? huisletterHuisnummertoevoeging,
+    String? huisletter,
+    String? huisnummertoevoeging,
+    int? oppervlakte,
     String? postcode,
     String? plaatsnaam,
     String? bagIdentificatie,
@@ -348,6 +419,9 @@ class BagData {
       huisnummer: huisnummer ?? this.huisnummer,
       huisletterHuisnummertoevoeging:
           huisletterHuisnummertoevoeging ?? this.huisletterHuisnummertoevoeging,
+      huisletter: huisletter ?? this.huisletter,
+      huisnummertoevoeging: huisnummertoevoeging ?? this.huisnummertoevoeging,
+      oppervlakte: oppervlakte ?? this.oppervlakte,
       postcode: postcode ?? this.postcode,
       plaatsnaam: plaatsnaam ?? this.plaatsnaam,
       bagIdentificatie: bagIdentificatie ?? this.bagIdentificatie,
@@ -450,8 +524,92 @@ class BagService {
   static String baseUrl =
       'https://api.bag.kadaster.nl/lvbag/individuelebevragingen/v2';
 
-  /// If true, send the API key using the `api_key` query parameter.
-  static bool useQueryApiKey = true;
+  /// Niet meer in gebruik: de sleutel hoort alleen in de `X-Api-Key`-header.
+  ///
+  /// De sleutel als `api_key`-queryparameter meesturen deed niets — zonder de
+  /// header antwoordt Kadaster met 401 — en zette de sleutel wel in elke URL,
+  /// en daarmee in serverlogboeken en foutrapporten.
+  @Deprecated('De sleutel gaat altijd via de X-Api-Key-header.')
+  static bool useQueryApiKey = false;
+
+  /// Standaardheaders voor Kadaster BAG v2.
+  ///
+  /// [metGeometrie] is verplicht voor endpoints die geometrie teruggeven
+  /// (/adressenuitgebreid, /panden, /verblijfsobjecten); zonder die header
+  /// antwoordt de API met 412 "acceptCrsMissing". Alleen epsg:28992 (RD)
+  /// wordt ondersteund — epsg:4326 geeft 406.
+  static Map<String, String> _headers(
+    String apiKey, {
+    bool metGeometrie = false,
+  }) {
+    return <String, String>{
+      'Accept': 'application/hal+json',
+      'X-Api-Key': apiKey,
+      if (metGeometrie) 'Accept-Crs': 'epsg:28992',
+    };
+  }
+
+  /// Haalt adressen op via `/adressenuitgebreid` en volgt de paginering.
+  ///
+  /// Dit endpoint geeft in één verzoek wat de app eerder in drie tot acht
+  /// verzoeken bij elkaar sprokkelde: bouwjaar, gebruiksdoelen, oppervlakte,
+  /// pand-id en de losse huisletter/huisnummertoevoeging.
+  static Future<List<Map<String, dynamic>>> _haalAdressenUitgebreid({
+    required Map<String, String> zoekvelden,
+    required String apiKey,
+    int maximaalAantalPaginas = 5,
+  }) async {
+    final gevonden = <Map<String, dynamic>>[];
+    var pagina = 1;
+
+    while (pagina <= maximaalAantalPaginas) {
+      final query = <String, String>{
+        ...zoekvelden,
+        'page': pagina.toString(),
+        'pageSize': '100',
+      };
+      final uri = Uri.parse('$baseUrl/adressenuitgebreid')
+          .replace(queryParameters: query);
+
+      final resp = await http.get(
+        uri,
+        headers: _headers(apiKey, metGeometrie: true),
+      );
+      if (resp.statusCode != 200) {
+        if (pagina == 1) {
+          throw Exception('BAG request failed: ${resp.statusCode}');
+        }
+        break;
+      }
+
+      final decoded = json.decode(resp.body);
+      if (decoded is! Map<String, dynamic>) {
+        break;
+      }
+
+      final embedded = decoded['_embedded'];
+      final adressen = embedded is Map<String, dynamic> ? embedded['adressen'] : null;
+      if (adressen is! List || adressen.isEmpty) {
+        break;
+      }
+      for (final item in adressen) {
+        if (item is Map<String, dynamic>) {
+          gevonden.add(item);
+        }
+      }
+
+      // Meer pagina's? Kadaster zet dan een 'next'-verwijzing in _links.
+      final links = decoded['_links'];
+      final heeftVolgende =
+          links is Map<String, dynamic> && links['next'] != null;
+      if (!heeftVolgende) {
+        break;
+      }
+      pagina++;
+    }
+
+    return gevonden;
+  }
 
   static String _normalizeHuisnummertoevoeging(String value) {
     return value
@@ -626,14 +784,6 @@ class BagService {
     }
 
     if (cleanPandId.isNotEmpty) {
-      final pandDebug = await _probePandEndpointStatuses(
-        pandId: cleanPandId,
-        apiKey: apiKey,
-      );
-      if (pandDebug.trim().isNotEmpty) {
-        gecombineerdeJson['_pandEndpointDebug'] = pandDebug;
-      }
-
       final pandObject = await _requestPandById(
         pandId: cleanPandId,
         apiKey: apiKey,
@@ -1642,59 +1792,20 @@ class BagService {
       throw Exception('Postcode of huisnummer ontbreekt voor BAG lookup');
     }
 
-    final query = <String, String>{
-      'postcode': normalizedPostcode,
-      'huisnummer': normalizedHuisnummer,
-      'exacteMatch': 'true',
-    };
-    if (useQueryApiKey) {
-      query['api_key'] = apiKey;
-    }
+    final records = await _requestAddressRecords(
+      postcode: normalizedPostcode,
+      huisnummer: normalizedHuisnummer,
+      apiKey: apiKey,
+      exacteMatch: true,
+    );
 
-    final uri = Uri.parse('$baseUrl/adressen').replace(queryParameters: query);
-    final headers = <String, String>{'Accept': 'application/hal+json'};
-    if (!useQueryApiKey) {
-      headers['Authorization'] = 'Bearer $apiKey';
-    }
-    headers['X-Api-Key'] = apiKey;
-
-    final resp = await http.get(uri, headers: headers);
-    if (resp.statusCode != 200) {
-      throw Exception('BAG request failed: ${resp.statusCode}');
-    }
-
-    final decoded = json.decode(resp.body);
-    if (decoded is! Map<String, dynamic>) {
-      throw Exception('Onverwachte BAG response');
-    }
-
-    final embedded = decoded['_embedded'];
-    if (embedded is Map<String, dynamic>) {
-      final adressen = embedded['adressen'];
-      if (adressen is List && adressen.isNotEmpty) {
-        final first = adressen.first;
-        if (first is Map<String, dynamic>) {
-          return _enrichWithPandBouwjaarIfNeeded(
-            bagData: BagData.fromJson(first),
-            apiKey: apiKey,
-          );
-        }
-      }
-    }
-
-    final adressenTopLevel = decoded['adressen'];
-    if (adressenTopLevel is List && adressenTopLevel.isNotEmpty) {
-      final first = adressenTopLevel.first;
-      if (first is Map<String, dynamic>) {
-        return _enrichWithPandBouwjaarIfNeeded(
-          bagData: BagData.fromJson(first),
-          apiKey: apiKey,
-        );
-      }
+    if (records.isEmpty) {
+      throw Exception('Geen BAG-adres gevonden voor '
+          '$normalizedPostcode $normalizedHuisnummer');
     }
 
     return _enrichWithPandBouwjaarIfNeeded(
-      bagData: BagData.fromJson(decoded),
+      bagData: BagData.fromJson(records.first),
       apiKey: apiKey,
     );
   }
@@ -1890,132 +2001,42 @@ class BagService {
     return results;
   }
 
+  /// Alle adressen op een postcode + huisnummer, inclusief alle appartementen.
+  ///
+  /// [exacteMatch] wordt bewust NIET meer aan de API doorgegeven. Met
+  /// `exacteMatch=true` geeft Kadaster nul treffers zodra een adres een
+  /// huisletter of toevoeging heeft: postcode 1072AL + huisnummer 79 leverde
+  /// 0 resultaten, terwijl er acht appartementen zijn. Zonder die vlag komen
+  /// ze alle acht terug en kiest de gebruiker zelf.
   static Future<List<Map<String, dynamic>>> _requestAddressRecords({
     required String postcode,
     required String huisnummer,
     required String apiKey,
     required bool exacteMatch,
+    String? huisletter,
+    String? huisnummertoevoeging,
   }) async {
-    final query = <String, String>{
-      'postcode': postcode,
-      'huisnummer': huisnummer,
-      'exacteMatch': exacteMatch ? 'true' : 'false',
-    };
-    if (useQueryApiKey) {
-      query['api_key'] = apiKey;
-    }
-
-    final uri = Uri.parse('$baseUrl/adressen').replace(queryParameters: query);
-    final headers = <String, String>{'Accept': 'application/hal+json'};
-    if (!useQueryApiKey) {
-      headers['Authorization'] = 'Bearer $apiKey';
-    }
-    headers['X-Api-Key'] = apiKey;
-
-    final resp = await http.get(uri, headers: headers);
-    if (resp.statusCode != 200) {
-      throw Exception('BAG request failed: ${resp.statusCode}');
-    }
-
-    final decoded = json.decode(resp.body);
-    if (decoded is! Map<String, dynamic>) {
-      throw Exception('Onverwachte BAG response');
-    }
-
-    final extracted = <Map<String, dynamic>>[];
-
-    final embedded = decoded['_embedded'];
-    if (embedded is Map<String, dynamic>) {
-      final adressen = embedded['adressen'];
-      if (adressen is List) {
-        for (final item in adressen) {
-          if (item is Map<String, dynamic>) {
-            extracted.add(item);
-          }
-        }
-      }
-    }
-
-    final adressenTopLevel = decoded['adressen'];
-    if (adressenTopLevel is List) {
-      for (final item in adressenTopLevel) {
-        if (item is Map<String, dynamic>) {
-          extracted.add(item);
-        }
-      }
-    }
-
-    if (extracted.isNotEmpty) {
-      return extracted;
-    }
-
-    if (decoded.containsKey('postcode') || decoded.containsKey('identificatie')) {
-      return [decoded];
-    }
-
-    return const [];
+    return _haalAdressenUitgebreid(
+      apiKey: apiKey,
+      zoekvelden: <String, String>{
+        'postcode': postcode,
+        'huisnummer': huisnummer,
+        if ((huisletter ?? '').trim().isNotEmpty)
+          'huisletter': huisletter!.trim(),
+        if ((huisnummertoevoeging ?? '').trim().isNotEmpty)
+          'huisnummertoevoeging': huisnummertoevoeging!.trim(),
+      },
+    );
   }
 
   static Future<List<Map<String, dynamic>>> _requestAddressRecordsByQuery({
     required String queryText,
     required String apiKey,
   }) async {
-    final query = <String, String>{
-      'q': queryText,
-    };
-    if (useQueryApiKey) {
-      query['api_key'] = apiKey;
-    }
-
-    final uri = Uri.parse('$baseUrl/adressen').replace(queryParameters: query);
-    final headers = <String, String>{'Accept': 'application/hal+json'};
-    if (!useQueryApiKey) {
-      headers['Authorization'] = 'Bearer $apiKey';
-    }
-    headers['X-Api-Key'] = apiKey;
-
-    final resp = await http.get(uri, headers: headers);
-    if (resp.statusCode != 200) {
-      throw Exception('BAG request failed: ${resp.statusCode}');
-    }
-
-    final decoded = json.decode(resp.body);
-    if (decoded is! Map<String, dynamic>) {
-      throw Exception('Onverwachte BAG response');
-    }
-
-    final extracted = <Map<String, dynamic>>[];
-
-    final embedded = decoded['_embedded'];
-    if (embedded is Map<String, dynamic>) {
-      final adressen = embedded['adressen'];
-      if (adressen is List) {
-        for (final item in adressen) {
-          if (item is Map<String, dynamic>) {
-            extracted.add(item);
-          }
-        }
-      }
-    }
-
-    final adressenTopLevel = decoded['adressen'];
-    if (adressenTopLevel is List) {
-      for (final item in adressenTopLevel) {
-        if (item is Map<String, dynamic>) {
-          extracted.add(item);
-        }
-      }
-    }
-
-    if (extracted.isNotEmpty) {
-      return extracted;
-    }
-
-    if (decoded.containsKey('postcode') || decoded.containsKey('identificatie')) {
-      return [decoded];
-    }
-
-    return const [];
+    return _haalAdressenUitgebreid(
+      apiKey: apiKey,
+      zoekvelden: <String, String>{'q': queryText},
+    );
   }
 
   static Future<BagData> _enrichWithPandBouwjaarIfNeeded({
@@ -2106,22 +2127,10 @@ class BagService {
     required String bagIdentificatie,
     required String apiKey,
   }) async {
-    final query = <String, String>{};
-    if (useQueryApiKey) {
-      query['api_key'] = apiKey;
-    }
-
-    final uri = Uri.parse('$baseUrl/adressen/$bagIdentificatie')
-        .replace(queryParameters: query);
-
-    final headers = <String, String>{'Accept': 'application/hal+json'};
-    if (!useQueryApiKey) {
-      headers['Authorization'] = 'Bearer $apiKey';
-    }
-    headers['X-Api-Key'] = apiKey;
+    final uri = Uri.parse('$baseUrl/adressen/$bagIdentificatie');
 
     try {
-      final resp = await http.get(uri, headers: headers);
+      final resp = await http.get(uri, headers: _headers(apiKey));
       if (resp.statusCode != 200) {
         return null;
       }
@@ -2246,19 +2255,15 @@ class BagService {
     final query = <String, String>{
       ...?extraQueryParameters,
     };
-    if (useQueryApiKey) {
-      query['api_key'] = apiKey;
-    }
 
-    final uri = Uri.parse('$baseUrl/$path').replace(queryParameters: query);
-    final headers = <String, String>{'Accept': 'application/hal+json'};
-    if (!useQueryApiKey) {
-      headers['Authorization'] = 'Bearer $apiKey';
-    }
-    headers['X-Api-Key'] = apiKey;
+    final uri = Uri.parse('$baseUrl/$path').replace(
+      queryParameters: query.isEmpty ? null : query,
+    );
 
     try {
-      final resp = await http.get(uri, headers: headers);
+      // Accept-Crs is hier verplicht: /verblijfsobjecten en /panden gaven
+      // zonder die header 412 en faalden dus altijd stil.
+      final resp = await http.get(uri, headers: _headers(apiKey, metGeometrie: true));
       if (resp.statusCode != 200) {
         return null;
       }
@@ -2331,227 +2336,27 @@ class BagService {
     }
   }
 
+  /// Haalt het pand op bij Kadaster: `GET /panden/{id}`.
+  ///
+  /// Eerder probeerde deze functie negen varianten van headers en
+  /// queryparameters achter elkaar. Dat is niet nodig: de juiste aanroep is
+  /// de X-Api-Key-header plus Accept-Crs (zonder die laatste antwoordt de API
+  /// met 412). De sleutel in de URL werkte sowieso niet — Kadaster geeft dan
+  /// 401 — en lekte hem alleen in logbestanden.
   static Future<String?> _fetchPandResponseBody({
     required String pandId,
     required String apiKey,
   }) async {
-    final base = Uri.parse('$baseUrl/panden/$pandId');
-    final baseExpand = Uri.parse('$baseUrl/panden/$pandId').replace(
-      queryParameters: {'expand': 'true'},
-    );
-
-    final attempts = <Map<String, dynamic>>[
-      {
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'Accept-Crs': 'epsg:28992',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'Accept-Crs': 'epsg:28992',
-          'Authorization': 'Bearer $apiKey',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'uri': baseExpand,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'Accept-Crs': 'epsg:28992',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'x-api-key': apiKey,
-        },
-      },
-      {
-        'uri': base,
-        'headers': {
-          'Accept': 'application/json',
-          'Accept-Crs': 'epsg:28992',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'uri': base,
-        'headers': {
-          'Accept': 'application/json',
-          'apikey': apiKey,
-        },
-      },
-      {
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'Authorization': 'Bearer $apiKey',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'uri': base.replace(queryParameters: {'api_key': apiKey}),
-        'headers': const {
-          'Accept': 'application/hal+json, application/json',
-        },
-      },
-      {
-        'uri': base.replace(queryParameters: {'api_key': apiKey, 'expand': 'true'}),
-        'headers': const {
-          'Accept': 'application/hal+json, application/json',
-        },
-      },
-      {
-        'uri': base.replace(queryParameters: {'apikey': apiKey}),
-        'headers': const {
-          'Accept': 'application/hal+json, application/json',
-        },
-      },
-    ];
-
-    for (final attempt in attempts) {
-      try {
-        final uri = attempt['uri'] as Uri;
-        final headers = attempt['headers'] as Map<String, String>;
-        final resp = await http.get(uri, headers: headers);
-        if (resp.statusCode == 200 && resp.body.trim().isNotEmpty) {
-          return resp.body;
-        }
-      } catch (_) {}
-    }
-
-    return null;
-  }
-
-  static Future<String> _probePandEndpointStatuses({
-    required String pandId,
-    required String apiKey,
-  }) async {
-    final base = Uri.parse('$baseUrl/panden/$pandId');
-    final baseExpand = Uri.parse('$baseUrl/panden/$pandId').replace(
-      queryParameters: {'expand': 'true'},
-    );
-    final attempts = <Map<String, dynamic>>[
-      {
-        'label': 'header:X-Api-Key+crs',
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'Accept-Crs': 'epsg:28992',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'label': 'bearer+header+crs',
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'Accept-Crs': 'epsg:28992',
-          'Authorization': 'Bearer $apiKey',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'label': 'query:api_key',
-        'uri': base.replace(queryParameters: {'api_key': apiKey}),
-        'headers': const {
-          'Accept': 'application/hal+json, application/json',
-        },
-      },
-      {
-        'label': 'query:api_key+expand',
-        'uri': base.replace(queryParameters: {'api_key': apiKey, 'expand': 'true'}),
-        'headers': const {
-          'Accept': 'application/hal+json, application/json',
-        },
-      },
-      {
-        'label': 'query:apikey',
-        'uri': base.replace(queryParameters: {'apikey': apiKey}),
-        'headers': const {
-          'Accept': 'application/hal+json, application/json',
-        },
-      },
-      {
-        'label': 'header:X-Api-Key+expand',
-        'uri': baseExpand,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'label': 'header:X-Api-Key',
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'label': 'header:x-api-key',
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'x-api-key': apiKey,
-        },
-      },
-      {
-        'label': 'header:X-Api-Key+json+crs',
-        'uri': base,
-        'headers': {
-          'Accept': 'application/json',
-          'Accept-Crs': 'epsg:28992',
-          'X-Api-Key': apiKey,
-        },
-      },
-      {
-        'label': 'header:apikey',
-        'uri': base,
-        'headers': {
-          'Accept': 'application/json',
-          'apikey': apiKey,
-        },
-      },
-      {
-        'label': 'bearer+header',
-        'uri': base,
-        'headers': {
-          'Accept': 'application/hal+json, application/json',
-          'Authorization': 'Bearer $apiKey',
-          'X-Api-Key': apiKey,
-        },
-      },
-    ];
-
-    final results = <String>[];
-    for (final attempt in attempts) {
-      final label = attempt['label'] as String;
-      final uri = attempt['uri'] as Uri;
-      final headers = attempt['headers'] as Map<String, String>;
-      try {
-        final resp = await http.get(uri, headers: headers);
-        results.add('$label=${resp.statusCode}');
-      } catch (_) {
-        results.add('$label=ERR');
+    try {
+      final resp = await http.get(
+        Uri.parse('$baseUrl/panden/$pandId'),
+        headers: _headers(apiKey, metGeometrie: true),
+      );
+      if (resp.statusCode == 200 && resp.body.trim().isNotEmpty) {
+        return resp.body;
       }
-    }
-
-    return results.join(', ');
+    } catch (_) {}
+    return null;
   }
 
   static String? _extractPandIdFromObject(Map<String, dynamic> decoded) {
