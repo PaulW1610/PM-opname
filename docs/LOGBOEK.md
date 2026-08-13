@@ -5,6 +5,25 @@ Nieuwste bovenaan. De API-afspraken met de website staan in
 `OneDrive/Apps/APP-API.md`; wensen richting de plugin-kant in
 `APP-API-WENSEN.md`.
 
+## 2026-08-13 — Build 19 naar TestFlight + herstel distributie-certificaat
+
+- **2.5.3+19 geüpload naar App Store Connect / TestFlight** (tag
+  `testflight-2.5.3-build19`, Delivery UUID f9cfc8d5-…). Upload via
+  `xcrun altool` met de App Store Connect API-key (8MMFTK5BXF).
+- **Certificaat-herstel:** de App Store-upload faalde eerst ("No signing
+  certificate iOS Distribution found"). Oorzaak: het **Apple Distribution**-
+  certificaat was uit de Sleutelhanger verdwenen (alleen Apple Development
+  restte). Opgelost door in Xcode → Settings → Accounts → Manage Certificates →
+  `+` → Apple Distribution een nieuw certificaat aan te maken. Daarna
+  `xcodebuild -exportArchive -allowProvisioningUpdates` → getekende IPA →
+  altool-upload. Bij het tekenen vraagt de Sleutelhanger eenmalig toegang tot
+  de private key → **Sta altijd toe** (Mac-inlogwachtwoord). Command-line
+  cloud-signing via de API-key kon het cert NIET aanmaken ("Cloud signing
+  permission error"); het certificaat moet lokaal in de keychain staan.
+- **Waarschuwing bij upload (geen actie nu):** MinimumOSVersion is 13.0; vanaf
+  **voorjaar 2027** eist Apple minimaal iOS 15.0. T.z.t. de deployment target
+  in `ios/` naar 15.0 bumpen.
+
 ## 2026-08-13 — XML-opnamevelden: gebouwtype, examennummer, adviseur (versies 2.5.0 → 2.5.3)
 
 Blok werk rond het VABI-monitorbestand dat de app aanlevert (via de Nextcloud).
