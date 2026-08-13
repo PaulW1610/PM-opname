@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/app_settings_service.dart';
@@ -35,6 +37,8 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
   final TextEditingController _bpNamespaceController = TextEditingController();
   final TextEditingController _bpUserController = TextEditingController();
   final TextEditingController _bpPassController = TextEditingController();
+
+  Timer? _autoSaveTimer;
 
   NextcloudMode _ncMode = NextcloudMode.link;
 
@@ -221,35 +225,51 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
     });
   }
 
-  Future<void> _save() async {
-    FocusManager.instance.primaryFocus?.unfocus();
+  /// Bouwt de huidige instellingen uit de invoervelden.
+  AppSettings _currentSettings() {
     final parsedRadius = double.tryParse(
       _gpsRadiusController.text.replaceAll(',', '.').trim(),
     );
     final sanitizedRadius = AppSettingsService.sanitizeGpsBagRadiusMeters(
       parsedRadius ?? AppSettingsService.defaultGpsBagRadiusMeters,
     );
+    return AppSettings(
+      emailRecipient: _emailController.text,
+      adviseurVoorletters: _adviseurVoorlettersController.text,
+      adviseurTussenvoegsel: _adviseurTussenvoegselController.text,
+      adviseurAchternaam: _adviseurAchternaamController.text,
+      examenNummerWonen: _examenWonenController.text,
+      examenNummerUtiliteit: _examenUtiliteitController.text,
+      photoStorageLocation: _photoStorageController.text,
+      gpsBagRadiusMeters: sanitizedRadius,
+    );
+  }
+
+  /// Stille automatische opslag (kort na een wijziging), zodat "set-once"-
+  /// gegevens als de adviseurnaam en examennummers nooit verloren gaan als de
+  /// gebruiker vergeet op Opslaan te drukken. Geen melding, geen spinner.
+  void _scheduleAutoSave() {
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(const Duration(milliseconds: 600), () {
+      AppSettingsService.saveSettings(_currentSettings());
+    });
+  }
+
+  Future<void> _save() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    _autoSaveTimer?.cancel();
+    final settings = _currentSettings();
 
     setState(() {
       _isSaving = true;
     });
-    await AppSettingsService.saveSettings(
-      AppSettings(
-        emailRecipient: _emailController.text,
-        adviseurVoorletters: _adviseurVoorlettersController.text,
-        adviseurTussenvoegsel: _adviseurTussenvoegselController.text,
-        adviseurAchternaam: _adviseurAchternaamController.text,
-        examenNummerWonen: _examenWonenController.text,
-        examenNummerUtiliteit: _examenUtiliteitController.text,
-        photoStorageLocation: _photoStorageController.text,
-        gpsBagRadiusMeters: sanitizedRadius,
-      ),
-    );
+    await AppSettingsService.saveSettings(settings);
     if (!mounted) {
       return;
     }
     setState(() {
-      _gpsRadiusController.text = sanitizedRadius.toStringAsFixed(0);
+      _gpsRadiusController.text =
+          settings.gpsBagRadiusMeters.toStringAsFixed(0);
       _isSaving = false;
     });
     ScaffoldMessenger.of(context).showSnackBar(
@@ -259,6 +279,7 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
 
   @override
   void dispose() {
+    _autoSaveTimer?.cancel();
     _emailController.dispose();
     _adviseurVoorlettersController.dispose();
     _adviseurTussenvoegselController.dispose();
@@ -304,6 +325,7 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                   TextField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
+                    onChanged: (_) => _scheduleAutoSave(),
                     decoration: const InputDecoration(
                       labelText: 'E-mail ontvanger voor afsluiten opname',
                       border: OutlineInputBorder(),
@@ -314,9 +336,15 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                     'Adviseur (naar het monitorbestand)',
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Wordt automatisch bewaard.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                   const SizedBox(height: 8),
                   TextField(
                     controller: _adviseurVoorlettersController,
+                    onChanged: (_) => _scheduleAutoSave(),
                     decoration: const InputDecoration(
                       labelText: 'Voorletters adviseur',
                       border: OutlineInputBorder(),
@@ -325,6 +353,7 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _adviseurTussenvoegselController,
+                    onChanged: (_) => _scheduleAutoSave(),
                     decoration: const InputDecoration(
                       labelText: 'Tussenvoegsel adviseur (optioneel)',
                       border: OutlineInputBorder(),
@@ -333,6 +362,7 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _adviseurAchternaamController,
+                    onChanged: (_) => _scheduleAutoSave(),
                     decoration: const InputDecoration(
                       labelText: 'Achternaam adviseur',
                       border: OutlineInputBorder(),
@@ -341,6 +371,7 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _examenWonenController,
+                    onChanged: (_) => _scheduleAutoSave(),
                     decoration: const InputDecoration(
                       labelText: 'Examen nummer adviseur (Wonen)',
                       border: OutlineInputBorder(),
@@ -349,6 +380,7 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _examenUtiliteitController,
+                    onChanged: (_) => _scheduleAutoSave(),
                     decoration: const InputDecoration(
                       labelText: 'Examen nummer adviseur (Utiliteit)',
                       border: OutlineInputBorder(),
