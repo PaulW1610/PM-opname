@@ -15,6 +15,8 @@ class XmlExportService {
     required String gebouwhoogte,
     required String bagId,
     required String bagPandId,
+    String vakbekwaamheidsnummer = '',
+    List<int>? objectClassificatie,
   }) async {
     final template = await rootBundle.loadString('assets/import_template.xml');
 
@@ -40,6 +42,7 @@ class XmlExportService {
     final cleanPlaatsnaam = plaatsnaam.trim();
     final cleanBouwjaar = bouwjaar.trim();
     final cleanGebouwhoogte = gebouwhoogte.trim();
+    final cleanVakbekwaamheidsnummer = vakbekwaamheidsnummer.trim();
     final naamObject = [cleanStraat, cleanHuisnummer, cleanPostcode]
       .where((part) => part.isNotEmpty)
       .join(' ')
@@ -112,6 +115,32 @@ class XmlExportService {
         'Gebouwhoogte',
         cleanGebouwhoogte,
       );
+    }
+
+    // Examennummer van de adviseur (uit Instellingen) → het lege
+    // <Vakbekwaamheidsnummer />-veld in de template. Alleen invullen als er een
+    // nummer bekend is; anders het veld ongemoeid (leeg) laten.
+    if (cleanVakbekwaamheidsnummer.isNotEmpty) {
+      xml = _replaceFirstTagValue(
+        xml,
+        'Vakbekwaamheidsnummer',
+        cleanVakbekwaamheidsnummer,
+      );
+    }
+
+    // Gebouwtype → ObjectClassificatie (Gebouwtype/Subtype/Ligging/Daktype).
+    // Alleen wegschrijven als we de VABI-codes van dit type ZEKER weten; anders
+    // het blok op de template-standaard (-1) laten, zodat de adviseur het type
+    // in VABI kiest en er nooit een verkeerde code in de XML belandt.
+    if (objectClassificatie != null && objectClassificatie.length == 4) {
+      const velden = <String>['Gebouwtype', 'Subtype', 'Ligging', 'Daktype'];
+      for (var i = 0; i < velden.length; i++) {
+        xml = _replaceObjectClassificatieTagValue(
+          xml,
+          velden[i],
+          objectClassificatie[i].toString(),
+        );
+      }
     }
 
     final safeDossierName = _sanitizeName(dossierName);

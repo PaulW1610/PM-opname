@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../config/app_secrets.dart';
+import '../models/gebouwtype_optie.dart';
 import '../models/wws_invoer_data.dart';
 import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
@@ -80,6 +81,9 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     'Facturen aannemer',
   ];
 
+  String _gebouwCategorie = GebouwtypeOptie.eengezins;
+  GebouwtypeOptie _gebouwType =
+      GebouwtypeOptie.voorCategorie(GebouwtypeOptie.eengezins).first;
   String _vloerType = _vloerOpties.first;
   String _ventilatieType = _ventilatieOpties.first;
   int _verwarmingType = 1;
@@ -411,6 +415,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         );
       }
 
+      final settings = await AppSettingsService.loadSettings();
       final xmlFile = await XmlExportService.createXmlForDossier(
         dossierName: widget.dossierName,
         straat: (bagData.adres ?? '').trim(),
@@ -423,6 +428,8 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         gebouwhoogte: _gebouwhoogte,
         bagId: (bagData.bagIdentificatie ?? '').trim(),
         bagPandId: (bagData.bagPandId ?? '').trim(),
+        vakbekwaamheidsnummer: settings.examenNummerWonen,
+        objectClassificatie: _gebouwType.objectClassificatie,
       );
 
       final bagPdfFile = await BagService.downloadBagPdfForDossier(
@@ -478,6 +485,10 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
           'bouwjaarBron': _resolveBouwjaarBron(),
           'gebouwhoogteMeter': _gebouwhoogte,
           'formulier': {
+            'gebouwCategorie': _gebouwCategorie,
+            'gebouwType': _gebouwType.type,
+            'gebouwBuildingCategory': _gebouwType.buildingCategory,
+            if (_gebouwType.sub != null) 'gebouwSub': _gebouwType.sub,
             'vloer': _vloerType,
             'ventilatie': _ventilatieType,
             'verwarming': _verwarmingTypeLabel,
@@ -606,6 +617,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       if (bouwjaar.isEmpty || bouwjaar == '0') {
         throw Exception('Geen bouwjaar. Vul bouwjaar handmatig in.');
       }
+      final settings = await AppSettingsService.loadSettings();
       final xmlFile = await XmlExportService.createXmlForDossier(
         dossierName: widget.dossierName,
         straat: (bagData.adres ?? '').trim(),
@@ -618,6 +630,8 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         gebouwhoogte: _gebouwhoogte,
         bagId: (bagData.bagIdentificatie ?? '').trim(),
         bagPandId: (bagData.bagPandId ?? '').trim(),
+        vakbekwaamheidsnummer: settings.examenNummerWonen,
+        objectClassificatie: _gebouwType.objectClassificatie,
       );
       final formulierPdfFile = await _createFormulierPdfForMail(
         bagData: bagData,
@@ -1167,6 +1181,72 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
                 ),
               ),
             const SizedBox(height: 16),
+            const Divider(thickness: 1.5),
+            const SizedBox(height: 8),
+            Text(
+              'Gebouwtype',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            Text('Categorie', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: _gebouwCategorie,
+              items: GebouwtypeOptie.categorieen
+                  .map(
+                    (categorie) => DropdownMenuItem<String>(
+                      value: categorie,
+                      child: Text(categorie),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: _isSaving
+                  ? null
+                  : (value) {
+                      if (value == null) return;
+                      setState(() {
+                        _gebouwCategorie = value;
+                        // Tweede lijst hangt af van de categorie: reset naar de
+                        // eerste optie binnen de nieuwe categorie.
+                        _gebouwType =
+                            GebouwtypeOptie.voorCategorie(value).first;
+                      });
+                    },
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text('Type', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: _gebouwType.id,
+              isExpanded: true,
+              items: GebouwtypeOptie.voorCategorie(_gebouwCategorie)
+                  .map(
+                    (optie) => DropdownMenuItem<String>(
+                      value: optie.id,
+                      child: Text(optie.type),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: _isSaving
+                  ? null
+                  : (value) {
+                      if (value == null) return;
+                      setState(() {
+                        _gebouwType = GebouwtypeOptie.voorCategorie(
+                          _gebouwCategorie,
+                        ).firstWhere((o) => o.id == value);
+                      });
+                    },
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Divider(thickness: 1.5),
+            const SizedBox(height: 8),
             Text('1. Vloer', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
