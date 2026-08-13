@@ -120,8 +120,20 @@ class XmlExportService {
       );
     }
 
-    // Adviseurgegevens (uit Instellingen) → de lege BezoekendeEpAdviseur-velden
-    // in de template. Alleen invullen wat is opgegeven; leeg = ongemoeid.
+    // VABI toont de adviseur uit het <Adviseur>-blok (Algemeen), niet uit de
+    // BezoekendeEpAdviseur-registratievelden. Vul daar de volledige naam
+    // ("voorletters tussenvoegsel achternaam") in het lege <Adviseur />-veld.
+    final adviseurNaam = <String>[
+      adviseurVoorletters.trim(),
+      adviseurTussenvoegsel.trim(),
+      adviseurAchternaam.trim(),
+    ].where((deel) => deel.isNotEmpty).join(' ');
+    if (adviseurNaam.isNotEmpty) {
+      xml = _replaceFirstTagValue(xml, 'Adviseur', adviseurNaam);
+    }
+
+    // Adviseurgegevens (uit Instellingen) → ook de BezoekendeEpAdviseur-velden
+    // (registratie). Alleen invullen wat is opgegeven; leeg = ongemoeid.
     if (adviseurVoorletters.trim().isNotEmpty) {
       xml = _replaceFirstTagValue(
         xml,
