@@ -13,6 +13,12 @@ class InstellingenScreen extends StatefulWidget {
 
 class _InstellingenScreenState extends State<InstellingenScreen> {
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _adviseurVoorlettersController =
+      TextEditingController();
+  final TextEditingController _adviseurTussenvoegselController =
+      TextEditingController();
+  final TextEditingController _adviseurAchternaamController =
+      TextEditingController();
   final TextEditingController _examenWonenController = TextEditingController();
   final TextEditingController _examenUtiliteitController = TextEditingController();
   final TextEditingController _photoStorageController = TextEditingController();
@@ -58,6 +64,9 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
     }
     setState(() {
       _emailController.text = settings.emailRecipient;
+      _adviseurVoorlettersController.text = settings.adviseurVoorletters;
+      _adviseurTussenvoegselController.text = settings.adviseurTussenvoegsel;
+      _adviseurAchternaamController.text = settings.adviseurAchternaam;
       _examenWonenController.text = settings.examenNummerWonen;
       _examenUtiliteitController.text = settings.examenNummerUtiliteit;
       _photoStorageController.text = settings.photoStorageLocation;
@@ -227,6 +236,9 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
     await AppSettingsService.saveSettings(
       AppSettings(
         emailRecipient: _emailController.text,
+        adviseurVoorletters: _adviseurVoorlettersController.text,
+        adviseurTussenvoegsel: _adviseurTussenvoegselController.text,
+        adviseurAchternaam: _adviseurAchternaamController.text,
         examenNummerWonen: _examenWonenController.text,
         examenNummerUtiliteit: _examenUtiliteitController.text,
         photoStorageLocation: _photoStorageController.text,
@@ -248,6 +260,9 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
   @override
   void dispose() {
     _emailController.dispose();
+    _adviseurVoorlettersController.dispose();
+    _adviseurTussenvoegselController.dispose();
+    _adviseurAchternaamController.dispose();
     _examenWonenController.dispose();
     _examenUtiliteitController.dispose();
     _photoStorageController.dispose();
@@ -291,6 +306,35 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                     keyboardType: TextInputType.emailAddress,
                     decoration: const InputDecoration(
                       labelText: 'E-mail ontvanger voor afsluiten opname',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Adviseur (naar het monitorbestand)',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _adviseurVoorlettersController,
+                    decoration: const InputDecoration(
+                      labelText: 'Voorletters adviseur',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _adviseurTussenvoegselController,
+                    decoration: const InputDecoration(
+                      labelText: 'Tussenvoegsel adviseur (optioneel)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _adviseurAchternaamController,
+                    decoration: const InputDecoration(
+                      labelText: 'Achternaam adviseur',
                       border: OutlineInputBorder(),
                     ),
                   ),

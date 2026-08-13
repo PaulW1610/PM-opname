@@ -2,6 +2,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class AppSettings {
   final String emailRecipient;
+  final String adviseurVoorletters;
+  final String adviseurTussenvoegsel;
+  final String adviseurAchternaam;
   final String examenNummerWonen;
   final String examenNummerUtiliteit;
   final String photoStorageLocation;
@@ -9,6 +12,9 @@ class AppSettings {
 
   const AppSettings({
     required this.emailRecipient,
+    required this.adviseurVoorletters,
+    required this.adviseurTussenvoegsel,
+    required this.adviseurAchternaam,
     required this.examenNummerWonen,
     required this.examenNummerUtiliteit,
     required this.photoStorageLocation,
@@ -17,6 +23,9 @@ class AppSettings {
 
   AppSettings copyWith({
     String? emailRecipient,
+    String? adviseurVoorletters,
+    String? adviseurTussenvoegsel,
+    String? adviseurAchternaam,
     String? examenNummerWonen,
     String? examenNummerUtiliteit,
     String? photoStorageLocation,
@@ -24,6 +33,10 @@ class AppSettings {
   }) {
     return AppSettings(
       emailRecipient: emailRecipient ?? this.emailRecipient,
+      adviseurVoorletters: adviseurVoorletters ?? this.adviseurVoorletters,
+      adviseurTussenvoegsel:
+          adviseurTussenvoegsel ?? this.adviseurTussenvoegsel,
+      adviseurAchternaam: adviseurAchternaam ?? this.adviseurAchternaam,
       examenNummerWonen: examenNummerWonen ?? this.examenNummerWonen,
       examenNummerUtiliteit: examenNummerUtiliteit ?? this.examenNummerUtiliteit,
       photoStorageLocation: photoStorageLocation ?? this.photoStorageLocation,
@@ -34,6 +47,10 @@ class AppSettings {
 
 class AppSettingsService {
   static const String _emailRecipientKey = 'settings_email_recipient_v1';
+  static const String _adviseurVoorlettersKey = 'settings_adviseur_voorletters_v1';
+  static const String _adviseurTussenvoegselKey =
+      'settings_adviseur_tussenvoegsel_v1';
+  static const String _adviseurAchternaamKey = 'settings_adviseur_achternaam_v1';
   static const String _examenWonenKey = 'settings_examen_wonen_v1';
   static const String _examenUtiliteitKey = 'settings_examen_utiliteit_v1';
   static const String _photoStorageKey = 'settings_photo_storage_v1';
@@ -59,6 +76,10 @@ class AppSettingsService {
     );
     return AppSettings(
       emailRecipient: (prefs.getString(_emailRecipientKey) ?? defaultEmailRecipient).trim(),
+      adviseurVoorletters: (prefs.getString(_adviseurVoorlettersKey) ?? '').trim(),
+      adviseurTussenvoegsel:
+          (prefs.getString(_adviseurTussenvoegselKey) ?? '').trim(),
+      adviseurAchternaam: (prefs.getString(_adviseurAchternaamKey) ?? '').trim(),
       examenNummerWonen: (prefs.getString(_examenWonenKey) ?? '').trim(),
       examenNummerUtiliteit: (prefs.getString(_examenUtiliteitKey) ?? '').trim(),
       photoStorageLocation: (prefs.getString(_photoStorageKey) ?? '').trim(),
@@ -69,6 +90,12 @@ class AppSettingsService {
   static Future<void> saveSettings(AppSettings settings) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_emailRecipientKey, settings.emailRecipient.trim());
+    await prefs.setString(
+        _adviseurVoorlettersKey, settings.adviseurVoorletters.trim());
+    await prefs.setString(
+        _adviseurTussenvoegselKey, settings.adviseurTussenvoegsel.trim());
+    await prefs.setString(
+        _adviseurAchternaamKey, settings.adviseurAchternaam.trim());
     await prefs.setString(_examenWonenKey, settings.examenNummerWonen.trim());
     await prefs.setString(_examenUtiliteitKey, settings.examenNummerUtiliteit.trim());
     await prefs.setString(_photoStorageKey, settings.photoStorageLocation.trim());

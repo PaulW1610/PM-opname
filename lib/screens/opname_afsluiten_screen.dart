@@ -429,6 +429,9 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         bagId: (bagData.bagIdentificatie ?? '').trim(),
         bagPandId: (bagData.bagPandId ?? '').trim(),
         vakbekwaamheidsnummer: settings.examenNummerWonen,
+        adviseurVoorletters: settings.adviseurVoorletters,
+        adviseurTussenvoegsel: settings.adviseurTussenvoegsel,
+        adviseurAchternaam: settings.adviseurAchternaam,
         objectClassificatie: _gebouwType.objectClassificatie,
       );
 
@@ -631,6 +634,9 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         bagId: (bagData.bagIdentificatie ?? '').trim(),
         bagPandId: (bagData.bagPandId ?? '').trim(),
         vakbekwaamheidsnummer: settings.examenNummerWonen,
+        adviseurVoorletters: settings.adviseurVoorletters,
+        adviseurTussenvoegsel: settings.adviseurTussenvoegsel,
+        adviseurAchternaam: settings.adviseurAchternaam,
         objectClassificatie: _gebouwType.objectClassificatie,
       );
       final formulierPdfFile = await _createFormulierPdfForMail(
