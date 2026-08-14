@@ -5,6 +5,34 @@ Nieuwste bovenaan. De API-afspraken met de website staan in
 `OneDrive/Apps/APP-API.md`; wensen richting de plugin-kant in
 `APP-API-WENSEN.md`.
 
+## 2026-08-14 — Eerste Android-build lukt (2.6.1+21)
+
+Doel: `flutter build apk`. De Mac had **geen Android SDK** (alleen Xcode/iOS).
+Setup via Homebrew: `android-commandlinetools` (sdkmanager) + `openjdk@17`
+(JDK) + `sdkmanager` platform-tools/android-35/build-tools;35.0.0 + licenties
+geaccepteerd + `flutter config --android-sdk` en `--jdk-dir`. JDK-home:
+`/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home`,
+SDK: `/opt/homebrew/share/android-commandlinetools`.
+
+Twee verouderde plugins braken de moderne Android-build (AGP 8.11 / Kotlin
+2.2.20 / Gradle 8.14):
+- **gallery_saver 2.3.2** (geen namespace, niet onderhouden) → vervangen door
+  **gal**; `PhotoLibraryService` gebruikt nu `Gal.putImage(album:)`. iOS
+  gebruikt nog eerst de native `photo_library_channel`; gal is de terugval.
+- **permission_handler 10.3.6** (verwijderde v1-embedding) → **11.3.1**. v13
+  vereist een nieuwere Kotlin-Gradle-DSL dan dit project (`compilerOptions`);
+  11.x werkt en heeft de v1-embedding er ook al uit. Publieke API ongewijzigd.
+
+Resultaat: `build/app/outputs/flutter-apk/app-debug.apk` (~150 MB debug, alle
+ABI's). iOS bouwt nog gewoon (geverifieerd). Alle 17 tests groen.
+
+**Nog nodig voor een echte Android-release (Play Store):** applicationId van
+placeholder `com.example.photo_organizer_app` → `nl.paulweijers...`; Android
+launcher-icoon; keystore + signingConfig; Google Play Console-account (€25);
+testen op een Android-toestel; en de **volumeknop-sluiter** heeft nog geen
+Android-kant (MainActivity.kt is leeg — Kotlin onKeyDown VOLUME_UP/DOWN →
+EventChannel `blueprint/volume_button`).
+
 ## 2026-08-14 — Foto-labels als data (2.6.0+20)
 
 Koerswijziging uit de pc-kant (`OneDrive/Apps/LEESMIJ-VOOR-CLAUDE.md` +
