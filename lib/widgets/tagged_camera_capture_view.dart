@@ -702,6 +702,7 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
         addressAlbumName: albumName,
         photoFilePrefix: widget.bagData.getPhotoFilePrefix(),
         photoSequenceNumber: photoNumber,
+        label: label,
       );
 
       // Bewaar lokale kopie + upload 'm op de achtergrond naar Nextcloud
@@ -711,6 +712,7 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
           sourcePath: image.path,
           prefix: widget.bagData.getPhotoFilePrefix(),
           sequenceNumber: photoNumber,
+          label: label,
         );
         if (savedFoto != null) {
           _queueNextcloudPhotoUpload(savedFoto);

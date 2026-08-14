@@ -39,7 +39,21 @@ class Wonen2Screen extends StatelessWidget {
                   CameraLabelOption('Achtergevel'),
                   CameraLabelOption('Voorgevel'),
                   CameraLabelOption('Ventilatie'),
-                  CameraLabelOption('CV'),
+                  CameraLabelOption(
+                    'Installatie/meter',
+                    subLabels: [
+                      'CV',
+                      'CV plaatje',
+                      'Boiler',
+                      'Boiler plaatje',
+                      'Geiser',
+                      'WP',
+                      'Meter',
+                      'Gasmeter',
+                      'MV',
+                      'Zon',
+                    ],
+                  ),
                   CameraLabelOption(
                     'Glas',
                     subLabels: [

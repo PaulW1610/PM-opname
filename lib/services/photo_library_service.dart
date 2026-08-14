@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'dossier_photo_store.dart';
+
 class PhotoLibraryService {
   static const MethodChannel _photoChannel =
       MethodChannel('photo_library_channel');
@@ -14,6 +16,7 @@ class PhotoLibraryService {
     required String addressAlbumName,
     String? photoFilePrefix,
     int? photoSequenceNumber,
+    String label = '',
   }) async {
     final photosPermission = await Permission.photos.status;
     if (!photosPermission.isGranted && !photosPermission.isLimited) {
@@ -25,6 +28,7 @@ class PhotoLibraryService {
       imagePath: imagePath,
       photoFilePrefix: photoFilePrefix,
       photoSequenceNumber: photoSequenceNumber,
+      label: label,
     );
     if (Platform.isIOS) {
       try {
@@ -63,6 +67,7 @@ class PhotoLibraryService {
     required String imagePath,
     String? photoFilePrefix,
     int? photoSequenceNumber,
+    String label = '',
   }) async {
     final prefix = _sanitizeFilePrefix(photoFilePrefix ?? 'foto');
     final number = photoSequenceNumber;
@@ -77,7 +82,11 @@ class PhotoLibraryService {
 
     final extensionMatch = RegExp(r'\.[A-Za-z0-9]+$').firstMatch(imagePath);
     final extension = extensionMatch?.group(0)?.toLowerCase() ?? '.jpg';
-    final fileName = '${prefix}_${number.toString().padLeft(4, '0')}$extension';
+    final seq = number.toString().padLeft(4, '0');
+    final labelDeel = DossierPhotoStore.labelForFilename(label);
+    final fileName = labelDeel.isEmpty
+        ? '${prefix}_$seq$extension'
+        : '${prefix}_${seq}_$labelDeel$extension';
 
     final tmpDir = await getTemporaryDirectory();
     final renamedCopy = File('${tmpDir.path}/$fileName');

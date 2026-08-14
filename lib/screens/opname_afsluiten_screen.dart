@@ -464,10 +464,24 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
               dossierName: widget.dossierName,
             );
 
+      // Fotolijst met machineleesbaar label per foto (uit de bestandsnaam),
+      // zodat de pc-keten het toestel/onderdeel niet uit de foto hoeft te
+      // herkennen. Label ontbreekt bij oude/ongelabelde foto's.
+      final fotoLijstVoorJson =
+          (await DossierPhotoStore.photosForPrefix(bagData.getPhotoFilePrefix()))
+              .map((f) {
+        final label = DossierPhotoStore.labelFromFilename(f.path);
+        return <String, dynamic>{
+          'bestand': f.path.split('/').last,
+          if (label != null) 'label': label,
+        };
+      }).toList();
+
       final jsonFile = await JsonExportService.createJsonForDossier(
         dossierName: widget.dossierName,
         data: <String, dynamic>{
           'schemaVersie': JsonExportService.schemaVersie,
+          'fotos': fotoLijstVoorJson,
           'dossierNaam': widget.dossierName,
           'geexporteerdOp': DateTime.now().toIso8601String(),
           'adres': {
