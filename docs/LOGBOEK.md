@@ -5,6 +5,29 @@ Nieuwste bovenaan. De API-afspraken met de website staan in
 `OneDrive/Apps/APP-API.md`; wensen richting de plugin-kant in
 `APP-API-WENSEN.md`.
 
+## 2026-08-14 — Foto-labels als data (2.6.0+20)
+
+Koerswijziging uit de pc-kant (`OneDrive/Apps/LEESMIJ-VOOR-CLAUDE.md` +
+`APP-FORMULIER-VELDEN.md`): **de app-XML is de basis, de PC-kant doet de
+foto-herkenning; GEEN Claude-API in de app.** De app hoeft alleen de foto's
+goed te labelen en dat label als DATA mee te geven (scheelt ~90% AI-kosten).
+
+- **Nieuw submenu "Installatie/meter"** in het opnamescherm
+  (`lib/screens/wonen2_screen.dart`): CV, CV plaatje, Boiler, Boiler plaatje,
+  Geiser, WP, Meter, Gasmeter, MV, Zon. (Meter = label, niet verplicht — keuze
+  Paul.)
+- **Label in de bestandsnaam**: `1018TA_102_0031_CVPLAATJE.jpg`, zowel in de
+  Foto's-albumkopie (`PhotoLibraryService`) als de dossier-/Nextcloud-kopie
+  (`DossierPhotoStore`). Helpers `labelForFilename`/`labelFromFilename` +
+  `test/foto_label_test.dart`.
+- **opname.json** krijgt een `fotos`-lijst met per foto `{bestand, label}`.
+- **Ingetrokken**: de CV-herkenning-endpointwens bij de website-kant (13 aug) —
+  de PC doet het, geen site-endpoint nodig. Genoteerd in APP-API-WENSEN.
+
+Openstaand (komt van Paul, zelfde Excel-opzet schermtekst|code|sub):
+ventilatie-varianten + resterende gebouwgegevens-enums; plus de "annotaties →
+data" voor glas/muurconstructie/kozijn per gevel (nu nog in beeld gebrand).
+
 ## 2026-08-13 — Build 19 naar TestFlight + herstel distributie-certificaat
 
 - **2.5.3+19 geüpload naar App Store Connect / TestFlight** (tag
