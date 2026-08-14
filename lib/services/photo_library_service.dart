@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:gallery_saver/gallery_saver.dart';
+import 'package:gal/gal.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
@@ -52,15 +52,13 @@ class PhotoLibraryService {
       }
     }
 
-    final result = await GallerySaver.saveImage(
-      targetPath,
-      albumName: albumName,
-    );
-
-    if (result != true) {
-      throw Exception('Opslaan in iCloud Foto\'s is mislukt.');
+    // Terugval (Android, en iOS als de native channel niet beschikbaar is):
+    // opslaan in de galerij/Foto's in een album met de adresnaam.
+    try {
+      await Gal.putImage(targetPath, album: albumName);
+    } on GalException catch (e) {
+      throw Exception('Opslaan in Foto\'s is mislukt: ${e.type.message}');
     }
-
   }
 
   static Future<String> _prepareImagePathForSave({
