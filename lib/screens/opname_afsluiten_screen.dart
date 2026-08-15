@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,6 +11,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../config/app_secrets.dart';
 import '../models/gebouwtype_optie.dart';
 import '../models/wws_invoer_data.dart';
+import '../services/afsluit_form_store.dart';
 import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
 import '../services/blueprint_api_service.dart';
@@ -125,6 +127,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     _wwsMaxHuurController = TextEditingController(text: _wwsData.maxHuur);
     _wwsWozWaardeController = TextEditingController(text: _wwsData.wozWaarde);
     _prefillInitialObjectData();
+    _restoreForm();
   }
 
   Future<void> _prefillInitialObjectData() async {
@@ -132,8 +135,103 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     await _prefillGebouwhoogteFrom3dBag();
   }
 
+  Timer? _formSaveTimer;
+
+  /// Herstelt de eerder ingevulde formulierstaat voor dit dossier (indien er
+  /// een bewaard concept is), zodat het scherm niet op nul begint.
+  Future<void> _restoreForm() async {
+    final data = await AfsluitFormStore.laad(widget.dossierName);
+    if (data.isEmpty || !mounted) return;
+    setState(() => _applyFormData(data));
+  }
+
+  /// Zet de bewaarde waarden terug op de invoervelden.
+  void _applyFormData(Map<String, dynamic> d) {
+    String? s(String k) => d[k] is String ? d[k] as String : null;
+    bool? b(String k) => d[k] is bool ? d[k] as bool : null;
+
+    final cat = s('gebouwCategorie');
+    if (cat != null && GebouwtypeOptie.categorieen.contains(cat)) {
+      _gebouwCategorie = cat;
+    }
+    final typeId = s('gebouwTypeId');
+    if (typeId != null) {
+      final match = GebouwtypeOptie.opties
+          .where((o) => o.id == typeId)
+          .toList(growable: false);
+      if (match.isNotEmpty) _gebouwType = match.first;
+    }
+    if (s('vloerType') != null) _vloerType = s('vloerType')!;
+    if (s('ventilatieType') != null) _ventilatieType = s('ventilatieType')!;
+    if (d['verwarmingType'] is int) _verwarmingType = d['verwarmingType'] as int;
+    if (s('tapwaterType') != null) _tapwaterType = s('tapwaterType')!;
+    _koelingAanwezig = b('koelingAanwezig') ?? _koelingAanwezig;
+    _zonneEnergieAanwezig = b('zonneEnergieAanwezig') ?? _zonneEnergieAanwezig;
+    _renovatieVanToepassing =
+        b('renovatieVanToepassing') ?? _renovatieVanToepassing;
+    _alleRamenHetzelfde = b('alleRamenHetzelfde') ?? _alleRamenHetzelfde;
+    if (d['aangeleverdeGegevens'] is List) {
+      _aangeleverdeGegevens
+        ..clear()
+        ..addAll((d['aangeleverdeGegevens'] as List).whereType<String>());
+    }
+    if (s('bouwjaar') != null) _bouwjaarController.text = s('bouwjaar')!;
+    if (s('huurActueel') != null) _huurActueelController.text = s('huurActueel')!;
+    _verhuurNaarObject = b('verhuurNaarObject') ?? _verhuurNaarObject;
+    // WWS-invoer (waarden + schakelaar) terugzetten.
+    final wws = d['wws'];
+    if (wws is Map) {
+      _wwsData = _wwsData.copyWith(
+        punten: wws['punten'] is String ? wws['punten'] as String : null,
+        maxHuur: wws['maxHuur'] is String ? wws['maxHuur'] as String : null,
+        wozWaarde: wws['woz'] is String ? wws['woz'] as String : null,
+        toepassen: wws['toepassen'] is bool ? wws['toepassen'] as bool : null,
+      );
+      _wwsPuntenController.text = _wwsData.punten;
+      _wwsMaxHuurController.text = _wwsData.maxHuur;
+      _wwsWozWaardeController.text = _wwsData.wozWaarde;
+    }
+  }
+
+  /// De huidige formulierstaat als bewaarbaar mapje.
+  Map<String, dynamic> _currentFormData() => <String, dynamic>{
+        'gebouwCategorie': _gebouwCategorie,
+        'gebouwTypeId': _gebouwType.id,
+        'vloerType': _vloerType,
+        'ventilatieType': _ventilatieType,
+        'verwarmingType': _verwarmingType,
+        'tapwaterType': _tapwaterType,
+        'koelingAanwezig': _koelingAanwezig,
+        'zonneEnergieAanwezig': _zonneEnergieAanwezig,
+        'renovatieVanToepassing': _renovatieVanToepassing,
+        'alleRamenHetzelfde': _alleRamenHetzelfde,
+        'aangeleverdeGegevens': _aangeleverdeGegevens.toList(),
+        'bouwjaar': _bouwjaarController.text,
+        'huurActueel': _huurActueelController.text,
+        'verhuurNaarObject': _verhuurNaarObject,
+        'wws': <String, dynamic>{
+          'punten': _wwsPuntenController.text,
+          'maxHuur': _wwsMaxHuurController.text,
+          'woz': _wwsWozWaardeController.text,
+          'toepassen': _wwsData.toepassen,
+        },
+      };
+
+  /// Stille automatische opslag van de formulierstaat (kort na een wijziging),
+  /// zodat er nooit iets verloren gaat.
+  void _scheduleFormSave() {
+    _formSaveTimer?.cancel();
+    _formSaveTimer = Timer(const Duration(milliseconds: 500), () {
+      AfsluitFormStore.bewaar(widget.dossierName, _currentFormData());
+    });
+  }
+
   @override
   void dispose() {
+    _formSaveTimer?.cancel();
+    // Laatste stand bewaren vóór de controllers weg zijn (vangnet naast de
+    // autosave), zodat het scherm bij terugkomen niet op nul staat.
+    AfsluitFormStore.bewaar(widget.dossierName, _currentFormData());
     _bouwjaarController.dispose();
     _huurActueelController.dispose();
     _wwsPuntenController.dispose();
@@ -398,8 +496,19 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     } catch (_) {}
   }
 
-  Future<void> _createAndMailXml() async {
+  /// Eén knop sluit de opname af: XML + PDF's + JSON maken, mailen, naar
+  /// Nextcloud zetten (voor de zekerheid), de formulier-samenvatting opslaan en
+  /// de eenheid op de website (blueprint-data.nl) aanmaken. Elke stap is
+  /// best-effort: als Nextcloud of de website hapert, gaat de rest gewoon door
+  /// en zie je per onderdeel wat er lukte.
+  Future<void> _afsluiten() async {
     _dismissKeyboard();
+    if (_renovatieVanToepassing == null || _alleRamenHetzelfde == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vul alle verplichte velden in.')),
+      );
+      return;
+    }
     setState(() {
       _isSaving = true;
     });
@@ -549,10 +658,13 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         isHTML: false,
       );
 
-      await FlutterEmailSender.send(email);
+      final meldingen = <String>[];
 
-      // Auto-upload naar Nextcloud als geconfigureerd (export-bestanden -> EP/).
-      String nextcloudInfo = '';
+      // 1. E-mail met alle bijlagen.
+      await FlutterEmailSender.send(email);
+      meldingen.add('E-mail geopend met de bijlagen.');
+
+      // 2. Naar Nextcloud (voor de zekerheid) — export-bestanden -> EP/.
       if (await NextcloudService.isConfigured()) {
         final epFiles = attachmentPaths.map((p) => File(p)).toList();
         final fotoFiles = await DossierPhotoStore.photosForPrefix(
@@ -572,32 +684,82 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
           ],
         );
         if (uploadResult.uploadedCount > 0) {
-          nextcloudInfo =
-              '\n${uploadResult.uploadedCount} bestand(en) geüpload naar Nextcloud ("$nextcloudRootFolder"/EP).';
+          meldingen.add(
+            '${uploadResult.uploadedCount} bestand(en) naar Nextcloud '
+            '("$nextcloudRootFolder"/EP).',
+          );
         }
-        if (!uploadResult.isSuccess && (uploadResult.message?.isNotEmpty ?? false)) {
-          nextcloudInfo = '$nextcloudInfo\nNextcloud: ${uploadResult.message}';
+        if (!uploadResult.isSuccess &&
+            (uploadResult.message?.isNotEmpty ?? false)) {
+          meldingen.add('Nextcloud-let op: ${uploadResult.message}');
         }
+      } else {
+        meldingen.add('Nextcloud niet ingesteld — overgeslagen.');
       }
 
+      // 3. Formulier-samenvatting opslaan (tekst + PNG + Foto's-album). De PNG
+      // dient meteen als bewijsfoto voor de website.
+      final formResult =
+          await DossierService.saveOpnameAfsluitingWithAlbumImage(
+        dossierName: widget.dossierName,
+        vloerType: _vloerType,
+        ventilatieType: _ventilatieType,
+        verwarmingType: _verwarmingTypeLabel,
+        tapwaterType: _tapwaterType,
+        koelingAanwezig: _koelingAanwezig,
+        zonneEnergieAanwezig: _zonneEnergieAanwezig,
+        renovatieVanToepassing: _renovatieVanToepassing!,
+        alleRamenHetzelfde: _alleRamenHetzelfde!,
+        aangeleverdeGegevens: _aangeleverdeGegevens.toList(growable: false),
+      );
+
+      // 4. Eenheid op de website (blueprint-data.nl) — best-effort.
+      try {
+        final websiteInfo = await _syncNaarBlueprintObject(
+          bagData,
+          bewijsFoto: File(formResult.imageFilePath),
+        );
+        meldingen.add(websiteInfo);
+      } on BlueprintApiException catch (error) {
+        meldingen.add('Websitekoppeling mislukt (${error.code}): ${error.message}');
+      } catch (error) {
+        meldingen.add('Websitekoppeling mislukt: $error');
+      }
+
+      if (mounted) {
+        setState(() {
+          _bagPdfStatus = 'Gegenereerd';
+        });
+      }
+      // Formulierstaat is verstuurd/opgeslagen; het bewaarde concept mag weg.
+      await AfsluitFormStore.wis(widget.dossierName);
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'XML + BAG PDF + Formulier PDF'
-            '${beslisschemaPdfFile != null ? ' + Beslisschema PDF' : ''}'
-            '${opmerkingenPdfFile != null ? ' + Opmerkingen PDF' : ''}'
-            '${drieDbagImageFile != null ? ' + 3DBAG afbeelding' : ''} '
-            'aangemaakt en e-mail geopend. Bouwjaar: $bouwjaar '
-            '(bron: ${_resolveBouwjaarBron()})'
-            '${_gebouwhoogte.isNotEmpty ? ', Gebouwhoogte: ${_gebouwhoogte} m (3DBAG)' : ''}$nextcloudInfo',
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Opname afgesloten'),
+          content: SingleChildScrollView(
+            child: Text(
+              'Bouwjaar: $bouwjaar (bron: ${_resolveBouwjaarBron()})'
+              '${_gebouwhoogte.isNotEmpty ? '\nGebouwhoogte: $_gebouwhoogte m (3DBAG)' : ''}'
+              '\n\n${meldingen.join('\n')}',
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('OK'),
+            ),
+          ],
         ),
       );
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('XML/e-mail mislukt: $error')),
+        SnackBar(content: Text('Afsluiten mislukt: $error')),
       );
     } finally {
       if (!mounted) return;
@@ -610,114 +772,6 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
   /// Root-mapnaam op Nextcloud: "postcode straat huisnummer(toevoeging)".
   String _nextcloudRootFolderName(BagData bagData) =>
       bagData.getNextcloudDossierName();
-
-  /// Handmatige upload naar Nextcloud (export -> EP/) met een duidelijk
-  /// resultaatvenster, los van de mail-stap.
-  Future<void> _uploadToNextcloud() async {
-    if (!await NextcloudService.isConfigured()) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Nextcloud is niet ingesteld. Vul je gegevens in via Instellingen.',
-          ),
-        ),
-      );
-      return;
-    }
-    setState(() => _isSaving = true);
-    try {
-      await _prefillBouwjaarFromBag();
-      await _prefillGebouwhoogteFrom3dBag();
-      final bagData = _resolvedBagData ?? widget.bagData;
-      final bouwjaar = _resolveBouwjaarForExport();
-      if (bouwjaar.isEmpty || bouwjaar == '0') {
-        throw Exception('Geen bouwjaar. Vul bouwjaar handmatig in.');
-      }
-      final settings = await AppSettingsService.loadSettings();
-      final xmlFile = await XmlExportService.createXmlForDossier(
-        dossierName: widget.dossierName,
-        straat: (bagData.adres ?? '').trim(),
-        huisnummer: (bagData.huisnummer ?? '').trim(),
-        huisletterToevoeging:
-            (bagData.huisletterHuisnummertoevoeging ?? '').trim(),
-        postcode: bagData.postcode.trim(),
-        plaatsnaam: bagData.plaatsnaam.trim(),
-        bouwjaar: bouwjaar,
-        gebouwhoogte: _gebouwhoogte,
-        bagId: (bagData.bagIdentificatie ?? '').trim(),
-        bagPandId: (bagData.bagPandId ?? '').trim(),
-        vakbekwaamheidsnummer: settings.examenNummerWonen,
-        adviseurVoorletters: settings.adviseurVoorletters,
-        adviseurTussenvoegsel: settings.adviseurTussenvoegsel,
-        adviseurAchternaam: settings.adviseurAchternaam,
-        objectClassificatie: _gebouwType.objectClassificatie,
-      );
-      final formulierPdfFile = await _createFormulierPdfForMail(
-        bagData: bagData,
-        bouwjaar: bouwjaar,
-      );
-      final rootFolder = _nextcloudRootFolderName(bagData);
-      final fotoFiles = await DossierPhotoStore.photosForPrefix(
-        bagData.getPhotoFilePrefix(),
-      );
-      final result = await NextcloudService.uploadDossier(
-        rootFolderName: 'Lopend/$rootFolder',
-        filesBySubfolder: {
-          'EP': [xmlFile, formulierPdfFile],
-          if (fotoFiles.isNotEmpty) 'foto\'s': fotoFiles,
-        },
-        ensureSubfolders: const [
-          'foto\'s',
-          'EP',
-          'correspondentie',
-          'onderbouwing',
-        ],
-      );
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (c) => AlertDialog(
-          title: Text(result.isSuccess
-              ? 'Nextcloud-upload geslaagd'
-              : 'Nextcloud-upload (deels) mislukt'),
-          content: SingleChildScrollView(
-            child: SelectableText(
-              'Map: "$rootFolder"/EP\n'
-              'Geüpload: ${result.uploadedCount}/${result.totalCount}\n'
-              '${result.failedFiles.isNotEmpty ? 'Mislukt: ${result.failedFiles.join(', ')}\n' : ''}'
-              '${result.message ?? NextcloudService.lastError ?? ''}'
-              '\n\nDoelpad (WebDAV):\n${result.targetUrl ?? '-'}',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (c) => AlertDialog(
-          title: const Text('Nextcloud-upload mislukt'),
-          content: Text('$error'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-    } finally {
-      if (!mounted) return;
-      setState(() => _isSaving = false);
-    }
-  }
 
   Future<File> _createFormulierPdfForMail({
     required BagData bagData,
@@ -795,94 +849,6 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     return file;
   }
 
-  Future<void> _save() async {
-    _dismissKeyboard();
-    if (_renovatieVanToepassing == null || _alleRamenHetzelfde == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vul alle verplichte velden in.')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isSaving = true;
-    });
-
-    try {
-      final result = await DossierService.saveOpnameAfsluitingWithAlbumImage(
-        dossierName: widget.dossierName,
-        vloerType: _vloerType,
-        ventilatieType: _ventilatieType,
-        verwarmingType: _verwarmingTypeLabel,
-        tapwaterType: _tapwaterType,
-        koelingAanwezig: _koelingAanwezig,
-        zonneEnergieAanwezig: _zonneEnergieAanwezig,
-        renovatieVanToepassing: _renovatieVanToepassing!,
-        alleRamenHetzelfde: _alleRamenHetzelfde!,
-        aangeleverdeGegevens: _aangeleverdeGegevens.toList(growable: false),
-      );
-
-      final bagData = _resolvedBagData ?? widget.bagData;
-      String websiteInfo;
-      try {
-        websiteInfo = await _syncNaarBlueprintObject(
-          bagData,
-          bewijsFoto: File(result.imageFilePath),
-        );
-      } on BlueprintApiException catch (error) {
-        websiteInfo =
-            'Websitekoppeling mislukt (${error.code}): ${error.message}';
-      } catch (error) {
-        websiteInfo = 'Websitekoppeling mislukt: $error';
-      }
-
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Opgeslagen'),
-          content: SingleChildScrollView(
-            child: Text(
-              'Formulier opgeslagen in dossier en Foto\'s-album.\n\n'
-              'Tekstbestand:\n${result.textFilePath}\n\n'
-              'PNG-bestand:\n${result.imageFilePath}\n\n'
-              '$websiteInfo',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                final textToCopy =
-                    'Tekstbestand: ${result.textFilePath}\nPNG-bestand: ${result.imageFilePath}';
-                await Clipboard.setData(ClipboardData(text: textToCopy));
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Paden gekopieerd naar klembord.')),
-                );
-              },
-              child: const Text('Kopieer pad'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-      Navigator.of(context).pop(true);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Opslaan mislukt: $error')),
-      );
-    } finally {
-      if (!mounted) return;
-      setState(() {
-        _isSaving = false;
-      });
-    }
-  }
-
   Widget _buildYesNoGroup({
     required String title,
     required bool? value,
@@ -894,7 +860,10 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         Text(title, style: Theme.of(context).textTheme.titleSmall),
         RadioGroup<bool>(
           groupValue: value,
-          onChanged: onChanged,
+          onChanged: (v) {
+            onChanged(v);
+            _scheduleFormSave();
+          },
           child: Row(
             children: [
               Expanded(
@@ -1443,27 +1412,13 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.save),
-                label: Text(_isSaving ? 'Opslaan...' : 'Opslaan in dossier'),
-                onPressed: _isSaving ? null : _save,
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.mail_outline),
-                label: const Text('Afronden en mail'),
-                onPressed: _isSaving ? null : _createAndMailXml,
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.cloud_upload),
-                label: const Text('Upload naar Nextcloud'),
-                onPressed: _isSaving ? null : _uploadToNextcloud,
+                    : const Icon(Icons.check_circle_outline),
+                label: Text(
+                  _isSaving
+                      ? 'Bezig met afsluiten...'
+                      : 'Opname afsluiten (Nextcloud + mail + website)',
+                ),
+                onPressed: _isSaving ? null : _afsluiten,
               ),
             ),
                   ],

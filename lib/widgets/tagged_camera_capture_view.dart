@@ -357,18 +357,82 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
   /// Serie van achtergrond-uploads naar Nextcloud (één voor één, niet-blokkerend).
   Future<void> _ncUploadChain = Future<void>.value();
 
+  /// Live teller van de Nextcloud-upload tijdens het werken, zodat de opnemer
+  /// ziet dat foto's echt continu doorstromen (en het merkt als iets mislukt).
+  int _ncUploaded = 0;
+  int _ncFailed = 0;
+  int _ncBezig = 0;
+
   void _queueNextcloudPhotoUpload(File foto) {
     final root = 'Lopend/${widget.bagData.getNextcloudDossierName()}';
+    if (mounted) setState(() => _ncBezig++);
     _ncUploadChain = _ncUploadChain.then((_) async {
+      var gelukt = false;
       try {
         if (await NextcloudService.isConfigured()) {
-          await NextcloudService.uploadSinglePhoto(
-            rootFolderName: root,
-            file: foto,
-          );
+          // Twee pogingen: veldwerk-wifi/4G hapert nog wel eens.
+          for (var poging = 0; poging < 2 && !gelukt; poging++) {
+            try {
+              await NextcloudService.uploadSinglePhoto(
+                rootFolderName: root,
+                file: foto,
+              );
+              gelukt = true;
+            } catch (_) {
+              if (poging == 0) {
+                await Future<void>.delayed(const Duration(seconds: 2));
+              }
+            }
+          }
+        } else {
+          // Niet ingesteld: tel niet als mislukt (afsluit-upload is het vangnet).
+          gelukt = true;
         }
       } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _ncBezig = _ncBezig > 0 ? _ncBezig - 1 : 0;
+          if (gelukt) {
+            _ncUploaded++;
+          } else {
+            _ncFailed++;
+          }
+        });
+      }
     });
+  }
+
+  /// Compacte statusregel over de live Nextcloud-upload (of null als er nog
+  /// niets te melden is).
+  Widget? _buildNextcloudStatus() {
+    if (_ncUploaded == 0 && _ncFailed == 0 && _ncBezig == 0) return null;
+    final delen = <String>[];
+    if (_ncBezig > 0) delen.add('$_ncBezig bezig');
+    if (_ncUploaded > 0) delen.add('$_ncUploaded op Nextcloud');
+    if (_ncFailed > 0) delen.add('$_ncFailed mislukt (gaat mee bij afsluiten)');
+    final rood = _ncFailed > 0;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: (rood ? Colors.red : Colors.black).withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            rood ? Icons.cloud_off : Icons.cloud_upload,
+            size: 16,
+            color: Colors.white,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            delen.join(' · '),
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+          ),
+        ],
+      ),
+    );
   }
 
   void _startVolumeButtonListener() {
@@ -870,6 +934,10 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_buildNextcloudStatus() case final status?) ...[
+            status,
+            const SizedBox(height: 8),
+          ],
           Wrap(
             spacing: 8,
             runSpacing: 6,
