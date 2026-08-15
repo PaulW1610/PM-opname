@@ -25,8 +25,12 @@ Drie wensen van Paul:
    (bezig/geüpload/mislukt) als statusregel in het camerascherm, en 2
    uploadpogingen i.p.v. 1. Mislukte foto's gaan alsnog mee bij het afsluiten.
 
-18 tests groen. iOS + Android bouwen. NB: bij het bouwen was de iPhone even
-niet verbonden — installatie op het toestel nog te doen.
+18 tests groen. iOS + Android bouwen.
+
+**Naar TestFlight**: build 22 (2.7.0+22) geüpload naar App Store Connect
+(tag `testflight-2.7.0-build22`, Delivery UUID 15bdff59). Ging nu vlot via
+`tool/build_testflight.sh --upload` omdat het Apple Distribution-certificaat er
+sinds 13 aug weer in staat. (iOS-13-waarschuwing blijft — voorjaar 2027 ≥15.0.)
 
 ## 2026-08-14 — Eerste Android-build lukt (2.6.1+21)
 
