@@ -5,6 +5,29 @@ Nieuwste bovenaan. De API-afspraken met de website staan in
 `OneDrive/Apps/APP-API.md`; wensen richting de plugin-kant in
 `APP-API-WENSEN.md`.
 
+## 2026-08-15 — Afsluitscherm herzien (2.7.0+22)
+
+Drie wensen van Paul:
+1. **Formulier onthoudt de invoer** (sprong eerst op nul). `initState` vulde
+   alles opnieuw uit `widget.bagData` bij elk heropenen. Nieuw
+   `lib/services/afsluit_form_store.dart`: bewaart de afsluit-formulierstaat
+   per dossier (autosave 500 ms bij wijziging + save in `dispose` als vangnet);
+   `_restoreForm()` zet 'm terug in initState. Concept wordt gewist zodra de
+   opname is afgesloten. Test `afsluit_form_store_test.dart`.
+2. **Drie afsluitknoppen → één knop "Opname afsluiten".** `_afsluiten()` doet
+   alles best-effort: XML+PDF's+JSON → mail → Nextcloud-upload → formulier-
+   samenvatting opslaan → eenheid op de website (blueprint-data.nl). Eén
+   resultaatvenster toont per onderdeel wat lukte. `_save` en
+   `_uploadToNextcloud` verwijderd. (Website-koppeling zit er bewust in — keuze
+   Paul.)
+3. **Continue foto-upload zichtbaar + betrouwbaar.** Bestond al (elke foto →
+   `Lopend/<dossier>` op Nextcloud) maar slikte fouten stil weg. Nu: teller
+   (bezig/geüpload/mislukt) als statusregel in het camerascherm, en 2
+   uploadpogingen i.p.v. 1. Mislukte foto's gaan alsnog mee bij het afsluiten.
+
+18 tests groen. iOS + Android bouwen. NB: bij het bouwen was de iPhone even
+niet verbonden — installatie op het toestel nog te doen.
+
 ## 2026-08-14 — Eerste Android-build lukt (2.6.1+21)
 
 Doel: `flutter build apk`. De Mac had **geen Android SDK** (alleen Xcode/iOS).
