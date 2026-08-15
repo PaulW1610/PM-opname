@@ -5,6 +5,21 @@ Nieuwste bovenaan. De API-afspraken met de website staan in
 `OneDrive/Apps/APP-API.md`; wensen richting de plugin-kant in
 `APP-API-WENSEN.md`.
 
+## 2026-08-15 — Volumeknop-sluiter blijft werken (2.7.1+23)
+
+Klacht Paul: de volumeknop-sluiter stopte "na een tijdje" (juist lastig bij
+weggewerkte ketels/typeplaatjes). Oorzaak: iOS deactiveert de
+`AVCaptureEventInteraction` bij een korte onderbreking (melding,
+Bedieningspaneel, scherm dimt) en zette 'm niet terug; de app stelde 'm alleen
+bij het openen scherp, en de `resumed`-tak sloeg juist over als de camera nog
+leefde. Fix op twee lagen:
+- **Dart** (`tagged_camera_capture_view`): `_rearmVolumeButton()` bij élke
+  `resumed` (ook als de camera nog draait) én na een verse camerastart.
+- **Native** (`AppDelegate.swift`): observer op
+  `UIApplication.didBecomeActiveNotification` bouwt de capture-interaction
+  opnieuw op zodra de app weer actief is — zelfhelend, ook als Flutters
+  levenscyclus net niet meepakt. Observer netjes opgeruimd in `stop()`.
+
 ## 2026-08-15 — Afsluitscherm herzien (2.7.0+22)
 
 Drie wensen van Paul:
