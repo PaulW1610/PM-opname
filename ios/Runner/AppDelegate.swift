@@ -48,6 +48,9 @@ class VolumeButtonHandler: NSObject, FlutterStreamHandler {
   // van een tijdvenster (geen vlag die kan blijven hangen als de reset niets doet).
   private var suppressUntil = Date.distantPast
   private let baseline: Float = 0.5
+  // iOS zet de volumeknop-koppeling uit bij een onderbreking (melding,
+  // Bedieningspaneel, scherm dimt). We vernieuwen 'm zodra de app weer actief is.
+  private var didBecomeActiveObserver: NSObjectProtocol?
 
   static func register(messenger: FlutterBinaryMessenger) {
     let handler = VolumeButtonHandler()
@@ -71,11 +74,36 @@ class VolumeButtonHandler: NSObject, FlutterStreamHandler {
 
   private func start() {
     DispatchQueue.main.async {
+      self.registerDidBecomeActiveObserver()
       // Eerst de officiële route proberen; lukt dat, dan hoeft de oude
       // volume-truc helemaal niet aan te staan.
       if self.startCaptureEventInteraction() { return }
       self.startVolumeObserver()
     }
+  }
+
+  private func registerDidBecomeActiveObserver() {
+    guard didBecomeActiveObserver == nil else { return }
+    didBecomeActiveObserver = NotificationCenter.default.addObserver(
+      forName: UIApplication.didBecomeActiveNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      self?.reactivateAfterInterruption()
+    }
+  }
+
+  /// Bouwt de capture-interaction opnieuw op zodra de app weer actief is; iOS
+  /// deactiveert 'm anders stilletjes na een onderbreking.
+  private func reactivateAfterInterruption() {
+    guard eventSink != nil else { return }
+    guard #available(iOS 17.2, *) else { return }
+    if let interaction = captureInteraction as? AVCaptureEventInteraction {
+      interaction.isEnabled = false
+      interaction.view?.removeInteraction(interaction)
+    }
+    captureInteraction = nil
+    _ = startCaptureEventInteraction()
   }
 
   /// iOS 17.2+: laat het systeem de volumeknoppen als sluiter afleveren.
@@ -128,6 +156,10 @@ class VolumeButtonHandler: NSObject, FlutterStreamHandler {
   private func stop() {
     observation?.invalidate()
     observation = nil
+    if let observer = didBecomeActiveObserver {
+      NotificationCenter.default.removeObserver(observer)
+      didBecomeActiveObserver = nil
+    }
     DispatchQueue.main.async {
       if #available(iOS 17.2, *),
          let interaction = self.captureInteraction as? AVCaptureEventInteraction {

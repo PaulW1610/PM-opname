@@ -442,6 +442,19 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     } catch (_) {}
   }
 
+  /// Zet de volumeknop-sluiter opnieuw scherp. iOS deactiveert de
+  /// volumeknop-koppeling zodra de app even onderbroken wordt (melding,
+  /// Bedieningspaneel, scherm dimt) en zet 'm niet altijd vanzelf terug.
+  /// Door de stream opnieuw op te starten (annuleren + opnieuw luisteren)
+  /// dwingen we de native kant om de koppeling opnieuw op te bouwen.
+  void _rearmVolumeButton() {
+    try {
+      _volumeButtonSub?.cancel();
+    } catch (_) {}
+    _volumeButtonSub = null;
+    _startVolumeButtonListener();
+  }
+
   void _onVolumeButtonPressed() {
     if (!mounted) return;
     // Volumeknop = sluiter, alleen op het opnamescherm (label gekozen) en
@@ -546,6 +559,9 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
     }
 
     if (state == AppLifecycleState.resumed) {
+      // Altijd de volumeknop opnieuw scherpstellen — ook als de camera nog
+      // leeft (korte onderbreking): juist dan zet iOS de koppeling uit.
+      _rearmVolumeButton();
       final current = _controller;
       if (current != null && current.value.isInitialized) {
         return;
@@ -633,6 +649,9 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
         _maxZoom = maxZoom;
         _zoomLevel = minZoom;
       });
+      // Na een verse camerastart de volumeknop-sluiter opnieuw scherpstellen:
+      // een camera-cyclus kan de audiosessie/koppeling resetten.
+      _rearmVolumeButton();
       await StabilityLoggerService.recordEvent(
         'camera_initialize_success',
         data: {
