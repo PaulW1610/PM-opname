@@ -1,7 +1,6 @@
 import Flutter
 import UIKit
 import AVFoundation
-import AVKit
 import MediaPlayer
 
 @main
@@ -29,11 +28,15 @@ import MediaPlayer
 /// krijgen. iOS levert de druk dan rechtstreeks af en verandert het volume
 /// niet; er is geen truc met een verborgen volumeregelaar nodig.
 ///
-/// Terugval (oudere iOS): het systeemvolume (AVAudioSession.outputVolume)
-/// observeren, met een verborgen MPVolumeView die de volume-HUD onderdrukt en
-/// het volume na elke druk terugzet naar het midden. Die route faalt op
-/// moderne iOS zodra het volume al op maximaal (of minimaal) staat — dan
-/// verandert er niets meer en komt er dus ook geen druk binnen.
+/// Werkwijze: het systeemvolume (AVAudioSession.outputVolume) observeren, met
+/// een verborgen MPVolumeView die de volume-HUD onderdrukt. Na elke druk zetten
+/// we het volume terug naar het midden (baseline 0.5), zodat er altijd speling
+/// in beide richtingen is — anders zou een druk bij maximaal/minimaal volume
+/// geen verandering geven. Deze methode staat LOS van de camerasessie en blijft
+/// daarom werken bij een lange reeks foto's.
+///
+/// (De officiële AVCaptureEventInteraction, iOS 17.2+, is bewust NIET gebruikt:
+/// die stopte in de praktijk met leveren na een aantal foto's.)
 ///
 /// Alles is best-effort en in try/catch, zodat het de camera nooit blokkeert.
 class VolumeButtonHandler: NSObject, FlutterStreamHandler {
@@ -41,9 +44,6 @@ class VolumeButtonHandler: NSObject, FlutterStreamHandler {
   private let audioSession = AVAudioSession.sharedInstance()
   private var volumeView: MPVolumeView?
   private var observation: NSKeyValueObservation?
-  /// `AVCaptureEventInteraction` (iOS 17.2+); als AnyObject bewaard omdat een
-  /// opgeslagen property niet met @available gemarkeerd mag worden.
-  private var captureInteraction: AnyObject?
   // Negeer KVO-callbacks die voortkomen uit onze eigen volume-reset, op basis
   // van een tijdvenster (geen vlag die kan blijven hangen als de reset niets doet).
   private var suppressUntil = Date.distantPast
@@ -75,9 +75,6 @@ class VolumeButtonHandler: NSObject, FlutterStreamHandler {
   private func start() {
     DispatchQueue.main.async {
       self.registerDidBecomeActiveObserver()
-      // Eerst de officiële route proberen; lukt dat, dan hoeft de oude
-      // volume-truc helemaal niet aan te staan.
-      if self.startCaptureEventInteraction() { return }
       self.startVolumeObserver()
     }
   }
@@ -93,34 +90,17 @@ class VolumeButtonHandler: NSObject, FlutterStreamHandler {
     }
   }
 
-  /// Bouwt de capture-interaction opnieuw op zodra de app weer actief is; iOS
-  /// deactiveert 'm anders stilletjes na een onderbreking.
+  /// Zet de audiosessie + baseline opnieuw scherp zodra de app weer actief is;
+  /// een onderbreking kan de sessie deactiveren.
   private func reactivateAfterInterruption() {
     guard eventSink != nil else { return }
-    guard #available(iOS 17.2, *) else { return }
-    if let interaction = captureInteraction as? AVCaptureEventInteraction {
-      interaction.isEnabled = false
-      interaction.view?.removeInteraction(interaction)
+    DispatchQueue.main.async {
+      do {
+        try self.audioSession.setCategory(.ambient, options: [.mixWithOthers])
+        try self.audioSession.setActive(true)
+      } catch {}
+      self.applyBaseline()
     }
-    captureInteraction = nil
-    _ = startCaptureEventInteraction()
-  }
-
-  /// iOS 17.2+: laat het systeem de volumeknoppen als sluiter afleveren.
-  /// Geeft `false` terug als dat niet kan, zodat de terugval kan starten.
-  private func startCaptureEventInteraction() -> Bool {
-    guard #available(iOS 17.2, *) else { return false }
-    guard let window = keyWindow() else { return false }
-    let interaction = AVCaptureEventInteraction { [weak self] event in
-      guard let self = self else { return }
-      // Alleen bij loslaten, anders vuurt één druk twee keer.
-      guard event.phase == .ended else { return }
-      self.eventSink?(nil)
-    }
-    interaction.isEnabled = true
-    window.addInteraction(interaction)
-    self.captureInteraction = interaction
-    return true
   }
 
   private func startVolumeObserver() {
@@ -161,12 +141,6 @@ class VolumeButtonHandler: NSObject, FlutterStreamHandler {
       didBecomeActiveObserver = nil
     }
     DispatchQueue.main.async {
-      if #available(iOS 17.2, *),
-         let interaction = self.captureInteraction as? AVCaptureEventInteraction {
-        interaction.isEnabled = false
-        interaction.view?.removeInteraction(interaction)
-      }
-      self.captureInteraction = nil
       self.volumeView?.removeFromSuperview()
       self.volumeView = nil
       do {
