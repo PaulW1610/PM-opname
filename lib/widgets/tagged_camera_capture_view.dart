@@ -827,6 +827,9 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
       setState(() {
         _isSaving = false;
       });
+      // De volumeknop-koppeling verslapt na een paar foto's; stel 'm na elke
+      // opname opnieuw scherp zodat hij blijft werken bij een reeks foto's.
+      _rearmVolumeButton();
     }
   }
 
