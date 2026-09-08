@@ -248,6 +248,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     if (!config.hasCredentials) {
       return 'Websitekoppeling overgeslagen: geen Blueprint credentials in Instellingen.';
     }
+    final settings = await AppSettingsService.loadSettings();
 
     // Losse adresvelden zijn VERPLICHT bij een app-intake (contract §3.3,
     // v0.62.1): het portaal draait hierop voor de weergavenaam, pand-
@@ -276,8 +277,13 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       if (toev != null) 'toev': toev,
       if (postcode != null) 'postcode': postcode,
       if (plaats != null) 'plaats': plaats,
+      // Contract §3.3: het BAG-pand-id hoort in `bag_pand_id`, NIET in `pand`
+      // (dat is de leesbare groepeernaam). De site groepeert zelf op adres.
       if ((bagData.bagPandId ?? '').trim().isNotEmpty)
-        'pand': (bagData.bagPandId ?? '').trim(),
+        'bag_pand_id': (bagData.bagPandId ?? '').trim(),
+      // Eigenaar (WP-user-ID) — bepaalt wie de eenheid op de site ziet.
+      if (settings.eigenaarId.trim().isNotEmpty)
+        'eigenaar': settings.eigenaarId.trim(),
       if (_wwsData.toepassen && _wwsData.wozWaarde.trim().isNotEmpty)
         'woz': _wwsWozWaardeController.text.trim(),
       'wws_actief': _wwsData.toepassen ? '1' : '0',
@@ -640,6 +646,10 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
           },
           'opdrachtgever': bagData.opdrachtgever?.toSnapshotJson(),
           'opdrachtnummer': (bagData.opdrachtnummer ?? '').trim(),
+          'eigenaar': {
+            'id': settings.eigenaarId,
+            'naam': settings.eigenaarNaam,
+          },
           'bouwjaar': bouwjaar,
           'bouwjaarBron': _resolveBouwjaarBron(),
           'gebouwhoogteMeter': _gebouwhoogte,

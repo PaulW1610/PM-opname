@@ -23,6 +23,9 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
       TextEditingController();
   final TextEditingController _examenWonenController = TextEditingController();
   final TextEditingController _examenUtiliteitController = TextEditingController();
+  final TextEditingController _eigenaarIdController = TextEditingController();
+  final TextEditingController _eigenaarNaamController = TextEditingController();
+  bool _eigenaarOphalenBezig = false;
   final TextEditingController _photoStorageController = TextEditingController();
   final TextEditingController _gpsRadiusController = TextEditingController();
 
@@ -73,6 +76,8 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
       _adviseurAchternaamController.text = settings.adviseurAchternaam;
       _examenWonenController.text = settings.examenNummerWonen;
       _examenUtiliteitController.text = settings.examenNummerUtiliteit;
+      _eigenaarIdController.text = settings.eigenaarId;
+      _eigenaarNaamController.text = settings.eigenaarNaam;
       _photoStorageController.text = settings.photoStorageLocation;
       _gpsRadiusController.text = settings.gpsBagRadiusMeters.toStringAsFixed(0);
       if (ncConfig != null) {
@@ -226,6 +231,35 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
   }
 
   /// Bouwt de huidige instellingen uit de invoervelden.
+  /// Vult de eigenaar met het ingelogde WordPress-account (id + naam).
+  Future<void> _ophaalEigenaar() async {
+    setState(() => _eigenaarOphalenBezig = true);
+    try {
+      final user = await BlueprintApiService.getCurrentUser();
+      if (!mounted) return;
+      setState(() {
+        _eigenaarIdController.text = user.id;
+        _eigenaarNaamController.text = user.naam;
+      });
+      await AppSettingsService.saveSettings(_currentSettings());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Eigenaar: ${user.naam} (ID ${user.id})')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ophalen mislukt — controleer je website-inloggegevens. ($e)',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _eigenaarOphalenBezig = false);
+    }
+  }
+
   AppSettings _currentSettings() {
     final parsedRadius = double.tryParse(
       _gpsRadiusController.text.replaceAll(',', '.').trim(),
@@ -240,6 +274,8 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
       adviseurAchternaam: _adviseurAchternaamController.text,
       examenNummerWonen: _examenWonenController.text,
       examenNummerUtiliteit: _examenUtiliteitController.text,
+      eigenaarId: _eigenaarIdController.text,
+      eigenaarNaam: _eigenaarNaamController.text,
       photoStorageLocation: _photoStorageController.text,
       gpsBagRadiusMeters: sanitizedRadius,
     );
@@ -286,6 +322,8 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
     _adviseurAchternaamController.dispose();
     _examenWonenController.dispose();
     _examenUtiliteitController.dispose();
+    _eigenaarIdController.dispose();
+    _eigenaarNaamController.dispose();
     _photoStorageController.dispose();
     _gpsRadiusController.dispose();
     _ncUrlController.dispose();
@@ -384,6 +422,51 @@ class _InstellingenScreenState extends State<InstellingenScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Examen nummer adviseur (Utiliteit)',
                       border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Eigenaar van aangemaakte eenheden',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'WordPress-gebruikersnummer op de site; bepaalt wie de '
+                    'eenheid ziet. Standaard je eigen inlogaccount.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _eigenaarIdController,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _scheduleAutoSave(),
+                    decoration: const InputDecoration(
+                      labelText: 'Eigenaar (gebruikers-ID)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _eigenaarNaamController,
+                    onChanged: (_) => _scheduleAutoSave(),
+                    decoration: const InputDecoration(
+                      labelText: 'Eigenaar (naam, ter herkenning)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      icon: _eigenaarOphalenBezig
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.person_outline),
+                      label: const Text('Ophalen uit inlogaccount'),
+                      onPressed: _eigenaarOphalenBezig ? null : _ophaalEigenaar,
                     ),
                   ),
                   const SizedBox(height: 12),

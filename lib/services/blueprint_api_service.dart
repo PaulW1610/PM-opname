@@ -363,6 +363,38 @@ class BlueprintApiService {
     return response.statusCode == 200;
   }
 
+  /// Haalt het ingelogde WordPress-account op (`GET /wp/v2/users/me`).
+  /// Dient als standaard-eigenaar van nieuwe eenheden: `{id, naam}`.
+  static Future<({String id, String naam})> getCurrentUser() async {
+    final config = await loadConfig();
+    if (!config.hasCredentials) {
+      throw const BlueprintApiException(
+        code: 'bd_auth_missing',
+        message: 'Geen inloggegevens ingesteld.',
+        status: 401,
+      );
+    }
+    final uri = Uri.parse('${config.baseWpJsonUrl}/wp/v2/users/me');
+    final response = await http
+        .get(uri, headers: _authHeaders(config))
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      throw _buildExceptionFromResponse(response);
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map) {
+      throw const BlueprintApiException(
+        code: 'bd_bad_response',
+        message: 'Onverwacht antwoord van de gebruikers-API.',
+        status: 200,
+      );
+    }
+    return (
+      id: (decoded['id'] ?? '').toString(),
+      naam: (decoded['name'] ?? '').toString(),
+    );
+  }
+
   /// `POST /bd/v1/woz` (publiek).
   static Future<WozLookupResult> lookupWoz({
     required String postcode,

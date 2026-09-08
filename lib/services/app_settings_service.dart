@@ -7,6 +7,8 @@ class AppSettings {
   final String adviseurAchternaam;
   final String examenNummerWonen;
   final String examenNummerUtiliteit;
+  final String eigenaarId;
+  final String eigenaarNaam;
   final String photoStorageLocation;
   final double gpsBagRadiusMeters;
 
@@ -17,6 +19,8 @@ class AppSettings {
     required this.adviseurAchternaam,
     required this.examenNummerWonen,
     required this.examenNummerUtiliteit,
+    required this.eigenaarId,
+    required this.eigenaarNaam,
     required this.photoStorageLocation,
     required this.gpsBagRadiusMeters,
   });
@@ -28,6 +32,8 @@ class AppSettings {
     String? adviseurAchternaam,
     String? examenNummerWonen,
     String? examenNummerUtiliteit,
+    String? eigenaarId,
+    String? eigenaarNaam,
     String? photoStorageLocation,
     double? gpsBagRadiusMeters,
   }) {
@@ -39,6 +45,8 @@ class AppSettings {
       adviseurAchternaam: adviseurAchternaam ?? this.adviseurAchternaam,
       examenNummerWonen: examenNummerWonen ?? this.examenNummerWonen,
       examenNummerUtiliteit: examenNummerUtiliteit ?? this.examenNummerUtiliteit,
+      eigenaarId: eigenaarId ?? this.eigenaarId,
+      eigenaarNaam: eigenaarNaam ?? this.eigenaarNaam,
       photoStorageLocation: photoStorageLocation ?? this.photoStorageLocation,
       gpsBagRadiusMeters: gpsBagRadiusMeters ?? this.gpsBagRadiusMeters,
     );
@@ -53,6 +61,8 @@ class AppSettingsService {
   static const String _adviseurAchternaamKey = 'settings_adviseur_achternaam_v1';
   static const String _examenWonenKey = 'settings_examen_wonen_v1';
   static const String _examenUtiliteitKey = 'settings_examen_utiliteit_v1';
+  static const String _eigenaarIdKey = 'settings_eigenaar_id_v1';
+  static const String _eigenaarNaamKey = 'settings_eigenaar_naam_v1';
   static const String _photoStorageKey = 'settings_photo_storage_v1';
   static const String _gpsBagRadiusMetersKey = 'settings_gps_bag_radius_meters_v1';
   static const String defaultEmailRecipient = 'info@pmlabels.nl';
@@ -82,6 +92,8 @@ class AppSettingsService {
       adviseurAchternaam: (prefs.getString(_adviseurAchternaamKey) ?? '').trim(),
       examenNummerWonen: (prefs.getString(_examenWonenKey) ?? '').trim(),
       examenNummerUtiliteit: (prefs.getString(_examenUtiliteitKey) ?? '').trim(),
+      eigenaarId: (prefs.getString(_eigenaarIdKey) ?? '').trim(),
+      eigenaarNaam: (prefs.getString(_eigenaarNaamKey) ?? '').trim(),
       photoStorageLocation: (prefs.getString(_photoStorageKey) ?? '').trim(),
       gpsBagRadiusMeters: gpsBagRadiusMeters,
     );
@@ -98,6 +110,8 @@ class AppSettingsService {
         _adviseurAchternaamKey, settings.adviseurAchternaam.trim());
     await prefs.setString(_examenWonenKey, settings.examenNummerWonen.trim());
     await prefs.setString(_examenUtiliteitKey, settings.examenNummerUtiliteit.trim());
+    await prefs.setString(_eigenaarIdKey, settings.eigenaarId.trim());
+    await prefs.setString(_eigenaarNaamKey, settings.eigenaarNaam.trim());
     await prefs.setString(_photoStorageKey, settings.photoStorageLocation.trim());
     await prefs.setDouble(
       _gpsBagRadiusMetersKey,
