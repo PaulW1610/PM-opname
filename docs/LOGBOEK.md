@@ -5,6 +5,35 @@ Nieuwste bovenaan. De API-afspraken met de website staan in
 `OneDrive/Apps/APP-API.md`; wensen richting de plugin-kant in
 `APP-API-WENSEN.md`.
 
+## 2026-09-08 — Veldbevindingen verwerkt (2.8.0+26)
+
+Batch uit de logboeken (13 aug → 8 sep), in overleg met Paul in deze volgorde:
+
+- **Adres-bug (opdracht 4, hoge prio).** `opname.json`/XML kreeg soms
+  `straat:""` + `plaats:"Locatie"` ("53 Locatie 2101HL" op de site). Oorzaak:
+  GPS-terugval in `start_screen` zette plaats op de letterlijke tekst 'Locatie'.
+  Fix: placeholder weg; `BagService.resolveBagDataForExport` vult straat/plaats
+  nu ook via `lookupByAddress` op postcode+huisnummer, en "Locatie" telt als
+  leeg; afsluitscherm waarschuwt (Terug / Toch afsluiten) bij een onvolledig
+  adres. Helper `heeftCompleetAdres` + test.
+- **Eigenaar (opdracht 3).** Instellingen-veld Eigenaar (WP-user-ID + naam) +
+  knop "Ophalen uit inlogaccount" (`GET /wp/v2/users/me`). `POST /entiteit`
+  stuurt nu `eigenaar` mee; opname.json krijgt `eigenaar {id,naam}`. Meteen:
+  BAG-pand-id → `bag_pand_id` i.p.v. `pand` (contract §3.3).
+- **Afsluiten robuuster + afstemvraag opnames-zonder-object.** Website-stap
+  toont bij een fout nu HTTP-status + tijdstip (matchbaar met Wordfence Live
+  Traffic) + knop "Opnieuw naar website"; concept wordt pas gewist als de
+  website-stap lukt. Antwoord op de pc-afstemvraag in APP-API-WENSEN (kernpunt:
+  de app stuurt GEEN fotoserie naar de site — alleen 1× createEntiteit + 1 foto;
+  Wordfence moet naar die entiteit-call kijken, niet naar fotoseries).
+- **WWS-tellertjes per tegel (7 sep).** Live puntenteller per tegel via stil
+  narekenen op `POST bd/v1/wws`; aangeleverd MET-TELLERS-bestand was exact de
+  huidige versie + tellers, dus overgenomen.
+
+Nog open van deze batch: basis-URL als instelling (collective.nl-migratie),
+WWS-onzelfstandig-scherm, polish (CV-plaatje verplicht bij gasketel,
+losse-foto-waarschuwing). 21 tests groen.
+
 ## 2026-08-15 — Volumeknop-sluiter blijft werken (2.7.1+23)
 
 Klacht Paul: de volumeknop-sluiter stopte "na een tijdje" (juist lastig bij

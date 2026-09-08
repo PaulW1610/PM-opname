@@ -1,6 +1,6 @@
 name: photo_organizer_app
 description: A Flutter app that tags camera photos and saves them to iCloud Photos albums by address.
-version: 2.7.3+25
+version: 2.8.0+26
 
 environment:
   sdk: ">=3.9.0 <4.0.0"
