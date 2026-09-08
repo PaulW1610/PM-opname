@@ -3,9 +3,326 @@ import 'package:flutter/material.dart';
 import '../models/wws_onz_data.dart';
 import '../services/blueprint_api_service.dart';
 
-/// Invoerscherm WWS onzelfstandige woonruimte (kamerverhuur). De server rekent
-/// (`POST /bd/v1/wws-onz`); dit scherm verzamelt het dossier en toont de
-/// uitkomst per kamer + totaal.
+/// Herbruikbare invoervelden + row-editors voor de WWS-onzelfstandig-schermen.
+/// Elk scherm (hoofd + subschermen) mixt dit in en levert zijn eigen setState.
+mixin _WwsOnzVelden<T extends StatefulWidget> on State<T> {
+  Widget vNum(String label, double waarde, ValueChanged<double> onChanged,
+      {bool isInt = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: TextFormField(
+        initialValue: isInt
+            ? waarde.round().toString()
+            : (waarde == 0 ? '' : _fmt(waarde)),
+        keyboardType:
+            const TextInputType.numberWithOptions(decimal: true, signed: false),
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        onChanged: (t) =>
+            onChanged(double.tryParse(t.replaceAll(',', '.').trim()) ?? 0),
+      ),
+    );
+  }
+
+  String _fmt(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toString();
+
+  Widget vTekst(String label, String waarde, ValueChanged<String> onChanged) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: TextFormField(
+          initialValue: waarde,
+          decoration: InputDecoration(
+            labelText: label,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+          onChanged: onChanged,
+        ),
+      );
+
+  Widget vDropdown(String label, String waarde, List<String> opties,
+      ValueChanged<String> onChanged) {
+    final huidig = opties.contains(waarde) ? waarde : opties.first;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: DropdownButtonFormField<String>(
+        initialValue: huidig,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: opties
+            .map((o) => DropdownMenuItem(value: o, child: Text(o)))
+            .toList(),
+        onChanged: (v) {
+          if (v != null) setState(() => onChanged(v));
+        },
+      ),
+    );
+  }
+
+  Widget vSwitch(String label, bool waarde, ValueChanged<bool> onChanged) =>
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        title: Text(label),
+        value: waarde,
+        onChanged: (v) => setState(() => onChanged(v)),
+      );
+
+  /// Voorziening-kiezer: aangevinkt = aantal 1.
+  Widget vVoorzieningen(
+      String titel, List<String> opties, Map<String, int> map) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 2),
+          child: Text(titel, style: Theme.of(context).textTheme.labelMedium),
+        ),
+        Wrap(
+          spacing: 6,
+          runSpacing: 2,
+          children: opties.map((o) {
+            final aan = (map[o] ?? 0) > 0;
+            return FilterChip(
+              label: Text(o, style: const TextStyle(fontSize: 12)),
+              selected: aan,
+              onSelected: (sel) => setState(() {
+                if (sel) {
+                  map[o] = 1;
+                } else {
+                  map.remove(o);
+                }
+              }),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  /// Multiselect van vaste teksten → lijst van strings (aftrekpunten).
+  Widget vTekstlijst(String titel, List<String> opties, List<String> gekozen) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 2),
+          child: Text(titel, style: Theme.of(context).textTheme.labelMedium),
+        ),
+        Wrap(
+          spacing: 6,
+          runSpacing: 2,
+          children: opties.map((o) {
+            final aan = gekozen.contains(o);
+            return FilterChip(
+              label: Text(o, style: const TextStyle(fontSize: 12)),
+              selected: aan,
+              onSelected: (sel) => setState(() {
+                if (sel) {
+                  gekozen.add(o);
+                } else {
+                  gekozen.remove(o);
+                }
+              }),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget vVerwijder(VoidCallback onDelete) => Align(
+        alignment: Alignment.centerRight,
+        child: TextButton.icon(
+          icon: const Icon(Icons.delete_outline, size: 18),
+          label: const Text('Verwijderen'),
+          onPressed: () => setState(onDelete),
+        ),
+      );
+
+  Widget vGedeeld(bool gedeeld, ValueChanged<bool> onG, int delenMet,
+      ValueChanged<int> onN) {
+    return Row(
+      children: [
+        Expanded(child: vSwitch('Gedeeld', gedeeld, onG)),
+        if (gedeeld)
+          SizedBox(
+            width: 120,
+            child: vNum('Delen met', delenMet.toDouble(),
+                (v) => onN(v.round() < 1 ? 1 : v.round()),
+                isInt: true),
+          ),
+      ],
+    );
+  }
+
+  Widget vKaart(
+      {required String titel,
+      required List<Widget> children,
+      bool open = false}) {
+    return Card(
+      elevation: 0,
+      color: Theme.of(context)
+          .colorScheme
+          .surfaceContainerHighest
+          .withValues(alpha: 0.4),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: ExpansionTile(
+        initiallyExpanded: open,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        title: Text(titel, style: const TextStyle(fontSize: 14)),
+        children: children,
+      ),
+    );
+  }
+
+  bool isKeukenType(String rt) =>
+      rt == 'Keuken' || rt == 'Woonkamer met open keuken';
+  bool isSanitairType(String rt) => rt == 'Badkamer' || rt == 'Toiletruimte';
+
+  Widget ruimteEditor(WwsOnzRuimte r, int i, VoidCallback onDelete) {
+    return vKaart(
+      titel: r.naam.isEmpty ? 'Ruimte ${i + 1}' : r.naam,
+      children: [
+        vTekst('Naam', r.naam, (v) => r.naam = v),
+        vDropdown('Soort', r.soort, WwsOnzKeuzes.soorten, (v) => r.soort = v),
+        vNum('Oppervlakte (m²)', r.oppervlakte, (v) => r.oppervlakte = v),
+        vGedeeld(r.gedeeld, (v) => r.gedeeld = v, r.delenMet,
+            (v) => r.delenMet = v),
+        vSwitch('Verwarmd', r.verwarmd, (v) => r.verwarmd = v),
+        vSwitch('Verkoeld', r.verkoeld, (v) => r.verkoeld = v),
+        vVerwijder(onDelete),
+      ],
+    );
+  }
+
+  Widget facilityEditor(WwsOnzFacilityRij r, int i, VoidCallback onDelete) {
+    final keuken = isKeukenType(r.ruimtetype);
+    final sanitair = isSanitairType(r.ruimtetype);
+    return vKaart(
+      titel: '${r.ruimtetype}${r.naam.isNotEmpty ? ' — ${r.naam}' : ''}',
+      children: [
+        vDropdown('Ruimtetype', r.ruimtetype, WwsOnzKeuzes.ruimtetypes,
+            (v) => r.ruimtetype = v),
+        vTekst('Naam', r.naam, (v) => r.naam = v),
+        if (r.ruimtetype != 'Toiletruimte')
+          vNum('Oppervlakte (m²)', r.oppervlakte, (v) => r.oppervlakte = v),
+        vGedeeld(r.gedeeld, (v) => r.gedeeld = v, r.delenMet,
+            (v) => r.delenMet = v),
+        vSwitch('Verwarmd', r.verwarmd, (v) => r.verwarmd = v),
+        vSwitch('Verkoeld', r.verkoeld, (v) => r.verkoeld = v),
+        if (keuken) ...[
+          vDropdown('Aanrechtlengte', r.aanrecht, WwsOnzKeuzes.aanrechtlengtes,
+              (v) => r.aanrecht = v),
+          vVoorzieningen('Keukenvoorzieningen', WwsOnzKeuzes.keukenKenmerken,
+              r.keukenKenmerken),
+        ],
+        if (sanitair) ...[
+          vVoorzieningen(
+              'Sanitair (basis)', WwsOnzKeuzes.sanitairBasis, r.sanitairBasis),
+          vVoorzieningen(
+              'Sanitair (extra)', WwsOnzKeuzes.sanitairExtra, r.sanitairExtra),
+        ],
+        vVerwijder(onDelete),
+      ],
+    );
+  }
+
+  Widget buitenEditor(WwsOnzBuiten r, int i, VoidCallback onDelete) {
+    return vKaart(
+      titel: r.naam.isEmpty ? 'Buitenruimte ${i + 1}' : r.naam,
+      children: [
+        vTekst('Naam', r.naam, (v) => r.naam = v),
+        vDropdown('Type', r.type, WwsOnzKeuzes.buitenTypes, (v) => r.type = v),
+        vNum('Oppervlakte (m²)', r.oppervlakte, (v) => r.oppervlakte = v),
+        vGedeeld(r.gedeeld, (v) => r.gedeeld = v, r.delenMet,
+            (v) => r.delenMet = v),
+        vVerwijder(onDelete),
+      ],
+    );
+  }
+
+  Widget kamerEditor(WwsOnzKamer u, int i, VoidCallback onDelete) {
+    final eigenKeuken = u.kitchen == 'Eigen keuken';
+    final eigenSanitair = u.sanitary == 'Eigen toilet, douche en wastafel';
+    return vKaart(
+      titel: u.naam.isEmpty ? 'Kamer ${i + 1}' : u.naam,
+      open: i == 0,
+      children: [
+        vTekst('Naam kamer', u.naam, (v) => u.naam = v),
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text('Ruimten van de kamer (${u.rooms.length})',
+                    style: Theme.of(context).textTheme.labelMedium),
+              ),
+              TextButton.icon(
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Ruimte'),
+                onPressed: () =>
+                    setState(() => u.rooms.add(WwsOnzRuimte(naam: 'Ruimte'))),
+              ),
+            ],
+          ),
+        ),
+        for (var j = 0; j < u.rooms.length; j++)
+          ruimteEditor(u.rooms[j], j, () => u.rooms.removeAt(j)),
+        const Divider(),
+        vDropdown('Keuken', u.kitchen, WwsOnzKeuzes.keukenSoort,
+            (v) => u.kitchen = v),
+        if (eigenKeuken) ...[
+          vDropdown('Aanrechtlengte (eigen keuken)', u.privateCountertop,
+              WwsOnzKeuzes.aanrechtlengtes, (v) => u.privateCountertop = v),
+          vVoorzieningen('Keukenvoorzieningen (eigen)',
+              WwsOnzKeuzes.keukenKenmerken, u.privateKitchenFeatures),
+        ],
+        vDropdown('Sanitair', u.sanitary, WwsOnzKeuzes.sanitairSoort,
+            (v) => u.sanitary = v),
+        if (eigenSanitair) ...[
+          vVoorzieningen('Sanitair basis (eigen)', WwsOnzKeuzes.sanitairBasis,
+              u.privateSanitairBasis),
+          vVoorzieningen('Sanitair extra (eigen)', WwsOnzKeuzes.sanitairExtra,
+              u.privateSanitairExtra),
+        ],
+        vSwitch('Eigen wastafel in de kamer', u.privateWashbasin,
+            (v) => u.privateWashbasin = v),
+        vDropdown('Eigen buitenruimte', u.privateOutdoorType,
+            WwsOnzKeuzes.buitenTypes, (v) => u.privateOutdoorType = v),
+        if (u.privateOutdoorType != 'Geen buitenruimte')
+          vNum('Oppervlakte eigen buitenruimte (m²)', u.privateOutdoorM2,
+              (v) => u.privateOutdoorM2 = v),
+        vNum('Investering handicapvoorzieningen (€)', u.handicapCosts,
+            (v) => u.handicapCosts = v),
+        vTekstlijst('Aftrekpunten', WwsOnzKeuzes.aftrekposten, u.deductions),
+        vSwitch('Zorgwoning', u.zorgwoning, (v) => u.zorgwoning = v),
+        vVerwijder(onDelete),
+      ],
+    );
+  }
+}
+
+/// Gegevens voor één tegel op het hoofdscherm.
+class _Tegel {
+  final String label;
+  final IconData icon;
+  final String subtitle;
+  final bool gevuld;
+  final VoidCallback onTap;
+  const _Tegel(this.label, this.icon, this.subtitle, this.gevuld, this.onTap);
+}
+
+/// Hoofdscherm WWS onzelfstandig: tegel-grid zoals de zelfstandige WWS.
 class WwsOnzScreen extends StatefulWidget {
   final String dossierNaam;
   final String adres;
@@ -36,6 +353,10 @@ class _WwsOnzScreenState extends State<WwsOnzScreen> {
   String? _fout;
   Map<String, dynamic>? _resultaat;
 
+  static const Color _gevuldBg = Color(0xFFEAF4EC);
+  static const Color _gevuldRand = Color(0xFF9CCBA6);
+  static const Color _gevuldGroen = Color(0xFF2F7D4F);
+
   @override
   void initState() {
     super.initState();
@@ -45,9 +366,7 @@ class _WwsOnzScreenState extends State<WwsOnzScreen> {
       plaats: widget.plaats,
       bouwjaar: widget.bouwjaar,
       woz: widget.wozVoorgevuld ?? 0,
-      label: (widget.energieLabelVoorgevuld ?? '').trim().isNotEmpty
-          ? _normLabel(widget.energieLabelVoorgevuld!)
-          : 'Geen geldig label',
+      label: _normLabel(widget.energieLabelVoorgevuld ?? ''),
     );
   }
 
@@ -56,9 +375,10 @@ class _WwsOnzScreenState extends State<WwsOnzScreen> {
     return WwsOnzKeuzes.energielabels.contains(s) ? s : 'Geen geldig label';
   }
 
-  bool _isKeukenType(String rt) =>
-      rt == 'Keuken' || rt == 'Woonkamer met open keuken';
-  bool _isSanitairType(String rt) => rt == 'Badkamer' || rt == 'Toiletruimte';
+  Future<void> _open(Widget scherm) async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => scherm));
+    if (mounted) setState(() {}); // tegels + samenvattingen verversen
+  }
 
   Future<void> _bereken() async {
     setState(() {
@@ -79,6 +399,46 @@ class _WwsOnzScreenState extends State<WwsOnzScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final tegels = <_Tegel>[
+      _Tegel(
+        'Gebouw',
+        Icons.apartment,
+        '${_d.occupants} bewoners · ${_d.label}',
+        _d.occupants > 0 && _d.woz > 0,
+        () => _open(_GebouwScherm(_d)),
+      ),
+      _Tegel(
+        'Gedeelde ruimtes',
+        Icons.meeting_room_outlined,
+        _d.facilityRows.isEmpty
+            ? 'Nog geen'
+            : '${_d.facilityRows.length} ruimte(s)',
+        _d.facilityRows.isNotEmpty,
+        () => _open(_GedeeldeRuimtesScherm(_d)),
+      ),
+      _Tegel(
+        'Extra gedeeld',
+        Icons.door_sliding_outlined,
+        _d.sharedRooms.isEmpty ? 'Nog geen' : '${_d.sharedRooms.length}',
+        _d.sharedRooms.isNotEmpty,
+        () => _open(_ExtraRuimtesScherm(_d)),
+      ),
+      _Tegel(
+        'Buitenruimtes',
+        Icons.deck_outlined,
+        _d.outdoor.isEmpty ? 'Nog geen' : '${_d.outdoor.length}',
+        _d.outdoor.isNotEmpty,
+        () => _open(_BuitenScherm(_d)),
+      ),
+      _Tegel(
+        'Kamers',
+        Icons.bed_outlined,
+        '${_d.units.length} kamer(s)',
+        _d.units.isNotEmpty,
+        () => _open(_KamersScherm(_d)),
+      ),
+    ];
+
     return Scaffold(
       appBar: AppBar(title: const Text('WWS onzelfstandig')),
       body: ListView(
@@ -87,64 +447,22 @@ class _WwsOnzScreenState extends State<WwsOnzScreen> {
           Text(widget.dossierNaam,
               style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
-          Text('Kamerpuntenstelsel — de server rekent na het versturen.',
+          Text('Kamerpuntenstelsel — tik een blok om in te vullen.',
               style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 12),
-
           if (_resultaat != null) _resultaatKaart(_resultaat!),
-          if (_fout != null)
-            _melding('Berekenen mislukt: $_fout', Colors.red),
-
-          _sectie('Gebouw', [
-            _numField('Aantal bewoners', _d.occupants.toDouble(),
-                (v) => _d.occupants = v.round(),
-                isInt: true),
-            _numField('GBO pand (m², uit WOZ)', _d.gbo, (v) => _d.gbo = v),
-            _numField('WOZ-waarde pand (€)', _d.woz, (v) => _d.woz = v),
-            _dropdown('COROP-gebied', _d.corop, WwsOnzKeuzes.coropGebieden,
-                (v) => _d.corop = v),
-            _dropdown('Energielabel pand', _d.label,
-                WwsOnzKeuzes.energielabels, (v) => _d.label = v),
-            _numField('Punten parkeerruimten', _d.parkingPoints,
-                (v) => _d.parkingPoints = v),
-            _numField('Aantal verwarmde hallen/gangen',
-                _d.heatedHallCount.toDouble(),
-                (v) => _d.heatedHallCount = v.round(),
-                isInt: true),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Gedeelde deurbel met intercom'),
-              value: _d.sharedDoorbellIntercom,
-              onChanged: (v) => setState(() => _d.sharedDoorbellIntercom = v),
+          if (_fout != null) _melding('Berekenen mislukt: $_fout'),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 1.3,
             ),
-          ]),
-
-          _lijstSectie<WwsOnzFacilityRij>(
-            'Gedeelde ruimtes',
-            _d.facilityRows,
-            () => _d.facilityRows.add(WwsOnzFacilityRij()),
-            (r, i) => _facilityEditor(r, i),
-          ),
-
-          _lijstSectie<WwsOnzRuimte>(
-            'Extra gedeelde ruimtes',
-            _d.sharedRooms,
-            () => _d.sharedRooms.add(WwsOnzRuimte(gedeeld: true)),
-            (r, i) => _ruimteEditor(r, i, gedeeldVast: true),
-          ),
-
-          _lijstSectie<WwsOnzBuiten>(
-            'Buitenruimtes (pand)',
-            _d.outdoor,
-            () => _d.outdoor.add(WwsOnzBuiten()),
-            (r, i) => _buitenEditor(r, i),
-          ),
-
-          _lijstSectie<WwsOnzKamer>(
-            'Kamers',
-            _d.units,
-            () => _d.units.add(WwsOnzKamer(naam: 'Kamer ${_d.units.length + 1}')),
-            (u, i) => _kamerEditor(u, i),
+            itemCount: tegels.length,
+            itemBuilder: (_, i) => _tegelKaart(tegels[i]),
           ),
         ],
       ),
@@ -167,13 +485,62 @@ class _WwsOnzScreenState extends State<WwsOnzScreen> {
     );
   }
 
-  // ---- Resultaat ----
+  Widget _tegelKaart(_Tegel t) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      elevation: t.gevuld ? 1 : 2,
+      color: t.gevuld ? _gevuldBg : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: t.gevuld
+            ? const BorderSide(color: _gevuldRand, width: 1.4)
+            : BorderSide.none,
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: t.onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(t.icon,
+                      size: 26,
+                      color: t.gevuld
+                          ? _gevuldGroen
+                          : cs.onSurface.withValues(alpha: 0.45)),
+                  const Spacer(),
+                  if (t.gevuld)
+                    const Icon(Icons.check_circle,
+                        size: 18, color: _gevuldGroen),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(t.label,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              Expanded(
+                child: Text(t.subtitle,
+                    style: Theme.of(context).textTheme.bodySmall,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _resultaatKaart(Map<String, dynamic> res) {
     final totaal = res['totaal'] is Map ? res['totaal'] as Map : const {};
     final units = res['units'] is List ? res['units'] as List : const [];
-    String euro(dynamic v) =>
-        v is num ? '€ ${v.toStringAsFixed(2)}' : '—';
+    String euro(dynamic v) => v is num ? '€ ${v.toStringAsFixed(2)}' : '—';
     return Card(
       color: const Color(0xFFE9F0F9),
       margin: const EdgeInsets.only(bottom: 12),
@@ -182,8 +549,7 @@ class _WwsOnzScreenState extends State<WwsOnzScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Uitkomst',
-                style: Theme.of(context).textTheme.titleSmall),
+            Text('Uitkomst', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 6),
             Text('Totaal: ${totaal['punten'] ?? '—'} punten · '
                 'max. huur ${euro(totaal['max_huur_maand'])}/mnd'),
@@ -201,374 +567,168 @@ class _WwsOnzScreenState extends State<WwsOnzScreen> {
     );
   }
 
-  Widget _melding(String tekst, Color kleur) => Container(
+  Widget _melding(String tekst) => Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: kleur.withValues(alpha: 0.1),
+          color: Colors.red.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: kleur.withValues(alpha: 0.4)),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
         ),
-        child: Text(tekst, style: TextStyle(color: kleur)),
+        child: Text(tekst, style: const TextStyle(color: Colors.red)),
       );
+}
 
-  // ---- Secties + herbruikbare velden ----
+// ---------------- Subschermen ----------------
 
-  Widget _sectie(String titel, List<Widget> kinderen) => Card(
-        margin: const EdgeInsets.only(bottom: 12),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(titel, style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 4),
-              ...kinderen,
-            ],
-          ),
-        ),
-      );
+class _GebouwScherm extends StatefulWidget {
+  final WwsOnzDossier d;
+  const _GebouwScherm(this.d);
+  @override
+  State<_GebouwScherm> createState() => _GebouwSchermState();
+}
 
-  Widget _lijstSectie<T>(
-    String titel,
-    List<T> lijst,
-    VoidCallback opToevoegen,
-    Widget Function(T item, int index) editor,
-  ) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text('$titel (${lijst.length})',
-                      style: Theme.of(context).textTheme.titleSmall),
-                ),
-                TextButton.icon(
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Toevoegen'),
-                  onPressed: () => setState(opToevoegen),
-                ),
-              ],
-            ),
-            for (var i = 0; i < lijst.length; i++) editor(lijst[i], i),
-          ],
-        ),
+class _GebouwSchermState extends State<_GebouwScherm> with _WwsOnzVelden {
+  @override
+  Widget build(BuildContext context) {
+    final d = widget.d;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Gebouw')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          vNum('Aantal bewoners', d.occupants.toDouble(),
+              (v) => d.occupants = v.round(),
+              isInt: true),
+          vNum('GBO pand (m², uit WOZ)', d.gbo, (v) => d.gbo = v),
+          vNum('WOZ-waarde pand (€)', d.woz, (v) => d.woz = v),
+          vDropdown('COROP-gebied', d.corop, WwsOnzKeuzes.coropGebieden,
+              (v) => d.corop = v),
+          vDropdown('Energielabel pand', d.label, WwsOnzKeuzes.energielabels,
+              (v) => d.label = v),
+          vNum('Punten parkeerruimten', d.parkingPoints,
+              (v) => d.parkingPoints = v),
+          vNum('Aantal verwarmde hallen/gangen', d.heatedHallCount.toDouble(),
+              (v) => d.heatedHallCount = v.round(),
+              isInt: true),
+          vSwitch('Gedeelde deurbel met intercom', d.sharedDoorbellIntercom,
+              (v) => d.sharedDoorbellIntercom = v),
+        ],
       ),
     );
   }
+}
 
-  Widget _numField(String label, double waarde, ValueChanged<double> onChanged,
-      {bool isInt = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: TextFormField(
-        initialValue: isInt
-            ? waarde.round().toString()
-            : (waarde == 0 ? '' : _fmt(waarde)),
-        keyboardType:
-            const TextInputType.numberWithOptions(decimal: true, signed: false),
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-          isDense: true,
-        ),
-        onChanged: (t) {
-          final v = double.tryParse(t.replaceAll(',', '.').trim()) ?? 0;
-          onChanged(v);
-        },
+/// Gedeeld basis-scherm voor een lijst met "+ toevoegen" en editors.
+abstract class _LijstSchermState<W extends StatefulWidget> extends State<W>
+    with _WwsOnzVelden<W> {
+  String get titel;
+  int get aantal;
+  void voegToe();
+  List<Widget> bouwItems();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(titel)),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        children: bouwItems(),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => setState(voegToe),
+        icon: const Icon(Icons.add),
+        label: const Text('Toevoegen'),
       ),
     );
   }
+}
 
-  String _fmt(double v) =>
-      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toString();
+class _GedeeldeRuimtesScherm extends StatefulWidget {
+  final WwsOnzDossier d;
+  const _GedeeldeRuimtesScherm(this.d);
+  @override
+  State<_GedeeldeRuimtesScherm> createState() => _GedeeldeRuimtesState();
+}
 
-  Widget _dropdown(String label, String waarde, List<String> opties,
-      ValueChanged<String> onChanged) {
-    final huidig = opties.contains(waarde) ? waarde : opties.first;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: DropdownButtonFormField<String>(
-        initialValue: huidig,
-        isExpanded: true,
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-          isDense: true,
-        ),
-        items: opties
-            .map((o) => DropdownMenuItem(value: o, child: Text(o)))
-            .toList(),
-        onChanged: (v) {
-          if (v != null) setState(() => onChanged(v));
-        },
-      ),
-    );
-  }
+class _GedeeldeRuimtesState
+    extends _LijstSchermState<_GedeeldeRuimtesScherm> {
+  @override
+  String get titel => 'Gedeelde ruimtes';
+  @override
+  int get aantal => widget.d.facilityRows.length;
+  @override
+  void voegToe() => widget.d.facilityRows.add(WwsOnzFacilityRij());
+  @override
+  List<Widget> bouwItems() => [
+        for (var i = 0; i < widget.d.facilityRows.length; i++)
+          facilityEditor(widget.d.facilityRows[i], i,
+              () => widget.d.facilityRows.removeAt(i)),
+      ];
+}
 
-  Widget _switch(String label, bool waarde, ValueChanged<bool> onChanged) =>
-      SwitchListTile(
-        contentPadding: EdgeInsets.zero,
-        dense: true,
-        title: Text(label),
-        value: waarde,
-        onChanged: (v) => setState(() => onChanged(v)),
-      );
+class _ExtraRuimtesScherm extends StatefulWidget {
+  final WwsOnzDossier d;
+  const _ExtraRuimtesScherm(this.d);
+  @override
+  State<_ExtraRuimtesScherm> createState() => _ExtraRuimtesState();
+}
 
-  /// Voorziening-kiezer: aangevinkte voorziening = aantal 1 (v1).
-  Widget _voorzieningen(
-      String titel, List<String> opties, Map<String, int> map) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 6, bottom: 2),
-          child: Text(titel, style: Theme.of(context).textTheme.labelMedium),
-        ),
-        Wrap(
-          spacing: 6,
-          runSpacing: 2,
-          children: opties.map((o) {
-            final aan = (map[o] ?? 0) > 0;
-            return FilterChip(
-              label: Text(o, style: const TextStyle(fontSize: 12)),
-              selected: aan,
-              onSelected: (sel) => setState(() {
-                if (sel) {
-                  map[o] = 1;
-                } else {
-                  map.remove(o);
-                }
-              }),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
+class _ExtraRuimtesState extends _LijstSchermState<_ExtraRuimtesScherm> {
+  @override
+  String get titel => 'Extra gedeelde ruimtes';
+  @override
+  int get aantal => widget.d.sharedRooms.length;
+  @override
+  void voegToe() => widget.d.sharedRooms.add(WwsOnzRuimte(gedeeld: true));
+  @override
+  List<Widget> bouwItems() => [
+        for (var i = 0; i < widget.d.sharedRooms.length; i++)
+          ruimteEditor(widget.d.sharedRooms[i], i,
+              () => widget.d.sharedRooms.removeAt(i)),
+      ];
+}
 
-  Widget _verwijderKnop(VoidCallback onDelete) => Align(
-        alignment: Alignment.centerRight,
-        child: TextButton.icon(
-          icon: const Icon(Icons.delete_outline, size: 18),
-          label: const Text('Verwijderen'),
-          onPressed: () => setState(onDelete),
-        ),
-      );
+class _BuitenScherm extends StatefulWidget {
+  final WwsOnzDossier d;
+  const _BuitenScherm(this.d);
+  @override
+  State<_BuitenScherm> createState() => _BuitenState();
+}
 
-  Widget _gedeeldRegel(bool gedeeld, ValueChanged<bool> onG, int delenMet,
-      ValueChanged<int> onN) {
-    return Row(
-      children: [
-        Expanded(child: _switch('Gedeeld', gedeeld, onG)),
-        if (gedeeld)
-          SizedBox(
-            width: 120,
-            child: _numField('Delen met', delenMet.toDouble(),
-                (v) => onN(v.round() < 1 ? 1 : v.round()),
-                isInt: true),
-          ),
-      ],
-    );
-  }
+class _BuitenState extends _LijstSchermState<_BuitenScherm> {
+  @override
+  String get titel => 'Buitenruimtes';
+  @override
+  int get aantal => widget.d.outdoor.length;
+  @override
+  void voegToe() => widget.d.outdoor.add(WwsOnzBuiten());
+  @override
+  List<Widget> bouwItems() => [
+        for (var i = 0; i < widget.d.outdoor.length; i++)
+          buitenEditor(widget.d.outdoor[i], i,
+              () => widget.d.outdoor.removeAt(i)),
+      ];
+}
 
-  // ---- Row-editors ----
+class _KamersScherm extends StatefulWidget {
+  final WwsOnzDossier d;
+  const _KamersScherm(this.d);
+  @override
+  State<_KamersScherm> createState() => _KamersState();
+}
 
-  Widget _ruimteEditor(WwsOnzRuimte r, int i,
-      {bool gedeeldVast = false, VoidCallback? onDelete}) {
-    return _rijKaart(
-      titel: r.naam.isEmpty ? 'Ruimte ${i + 1}' : r.naam,
-      children: [
-        _tekst('Naam', r.naam, (v) => r.naam = v),
-        _dropdown('Soort', r.soort, WwsOnzKeuzes.soorten, (v) => r.soort = v),
-        _numField('Oppervlakte (m²)', r.oppervlakte, (v) => r.oppervlakte = v),
-        _gedeeldRegel(r.gedeeld, (v) => r.gedeeld = v, r.delenMet,
-            (v) => r.delenMet = v),
-        _switch('Verwarmd', r.verwarmd, (v) => r.verwarmd = v),
-        _switch('Verkoeld', r.verkoeld, (v) => r.verkoeld = v),
-        if (onDelete != null) _verwijderKnop(onDelete),
-      ],
-    );
-  }
-
-  Widget _facilityEditor(WwsOnzFacilityRij r, int i) {
-    final keuken = _isKeukenType(r.ruimtetype);
-    final sanitair = _isSanitairType(r.ruimtetype);
-    return _rijKaart(
-      titel: '${r.ruimtetype}${r.naam.isNotEmpty ? ' — ${r.naam}' : ''}',
-      children: [
-        _dropdown('Ruimtetype', r.ruimtetype, WwsOnzKeuzes.ruimtetypes,
-            (v) => r.ruimtetype = v),
-        _tekst('Naam', r.naam, (v) => r.naam = v),
-        if (r.ruimtetype != 'Toiletruimte')
-          _numField('Oppervlakte (m²)', r.oppervlakte,
-              (v) => r.oppervlakte = v),
-        _gedeeldRegel(r.gedeeld, (v) => r.gedeeld = v, r.delenMet,
-            (v) => r.delenMet = v),
-        _switch('Verwarmd', r.verwarmd, (v) => r.verwarmd = v),
-        _switch('Verkoeld', r.verkoeld, (v) => r.verkoeld = v),
-        if (keuken) ...[
-          _dropdown('Aanrechtlengte', r.aanrecht,
-              WwsOnzKeuzes.aanrechtlengtes, (v) => r.aanrecht = v),
-          _voorzieningen('Keukenvoorzieningen',
-              WwsOnzKeuzes.keukenKenmerken, r.keukenKenmerken),
-        ],
-        if (sanitair) ...[
-          _voorzieningen('Sanitair (basis)', WwsOnzKeuzes.sanitairBasis,
-              r.sanitairBasis),
-          _voorzieningen('Sanitair (extra)', WwsOnzKeuzes.sanitairExtra,
-              r.sanitairExtra),
-        ],
-        _verwijderKnop(() => _d.facilityRows.remove(r)),
-      ],
-    );
-  }
-
-  Widget _buitenEditor(WwsOnzBuiten r, int i) {
-    return _rijKaart(
-      titel: r.naam.isEmpty ? 'Buitenruimte ${i + 1}' : r.naam,
-      children: [
-        _tekst('Naam', r.naam, (v) => r.naam = v),
-        _dropdown('Type', r.type, WwsOnzKeuzes.buitenTypes, (v) => r.type = v),
-        _numField('Oppervlakte (m²)', r.oppervlakte, (v) => r.oppervlakte = v),
-        _gedeeldRegel(r.gedeeld, (v) => r.gedeeld = v, r.delenMet,
-            (v) => r.delenMet = v),
-        _verwijderKnop(() => _d.outdoor.remove(r)),
-      ],
-    );
-  }
-
-  Widget _kamerEditor(WwsOnzKamer u, int i) {
-    final eigenKeuken = u.kitchen == 'Eigen keuken';
-    final eigenSanitair = u.sanitary == 'Eigen toilet, douche en wastafel';
-    return _rijKaart(
-      titel: u.naam.isEmpty ? 'Kamer ${i + 1}' : u.naam,
-      initieelOpen: i == 0,
-      children: [
-        _tekst('Naam kamer', u.naam, (v) => u.naam = v),
-        // Privéruimten van de kamer.
-        Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text('Ruimten van de kamer (${u.rooms.length})',
-                    style: Theme.of(context).textTheme.labelMedium),
-              ),
-              TextButton.icon(
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Ruimte'),
-                onPressed: () =>
-                    setState(() => u.rooms.add(WwsOnzRuimte(naam: 'Ruimte'))),
-              ),
-            ],
-          ),
-        ),
-        for (var j = 0; j < u.rooms.length; j++)
-          _ruimteEditor(u.rooms[j], j,
-              onDelete: () => u.rooms.removeAt(j)),
-        const Divider(),
-        _dropdown('Keuken', u.kitchen, WwsOnzKeuzes.keukenSoort,
-            (v) => u.kitchen = v),
-        if (eigenKeuken) ...[
-          _dropdown('Aanrechtlengte (eigen keuken)', u.privateCountertop,
-              WwsOnzKeuzes.aanrechtlengtes, (v) => u.privateCountertop = v),
-          _voorzieningen('Keukenvoorzieningen (eigen)',
-              WwsOnzKeuzes.keukenKenmerken, u.privateKitchenFeatures),
-        ],
-        _dropdown('Sanitair', u.sanitary, WwsOnzKeuzes.sanitairSoort,
-            (v) => u.sanitary = v),
-        if (eigenSanitair) ...[
-          _voorzieningen('Sanitair basis (eigen)',
-              WwsOnzKeuzes.sanitairBasis, u.privateSanitairBasis),
-          _voorzieningen('Sanitair extra (eigen)',
-              WwsOnzKeuzes.sanitairExtra, u.privateSanitairExtra),
-        ],
-        _switch('Eigen wastafel in de kamer', u.privateWashbasin,
-            (v) => u.privateWashbasin = v),
-        _dropdown('Eigen buitenruimte', u.privateOutdoorType,
-            WwsOnzKeuzes.buitenTypes, (v) => u.privateOutdoorType = v),
-        if (u.privateOutdoorType != 'Geen buitenruimte')
-          _numField('Oppervlakte eigen buitenruimte (m²)', u.privateOutdoorM2,
-              (v) => u.privateOutdoorM2 = v),
-        _numField('Investering handicapvoorzieningen (€)', u.handicapCosts,
-            (v) => u.handicapCosts = v),
-        _voorzieningenLijst('Aftrekpunten', WwsOnzKeuzes.aftrekposten,
-            u.deductions),
-        _switch('Zorgwoning', u.zorgwoning, (v) => u.zorgwoning = v),
-        _verwijderKnop(() => _d.units.remove(u)),
-      ],
-    );
-  }
-
-  /// Multiselect van vaste teksten (aftrekpunten) → lijst van strings.
-  Widget _voorzieningenLijst(
-      String titel, List<String> opties, List<String> gekozen) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 6, bottom: 2),
-          child: Text(titel, style: Theme.of(context).textTheme.labelMedium),
-        ),
-        Wrap(
-          spacing: 6,
-          runSpacing: 2,
-          children: opties.map((o) {
-            final aan = gekozen.contains(o);
-            return FilterChip(
-              label: Text(o, style: const TextStyle(fontSize: 12)),
-              selected: aan,
-              onSelected: (sel) => setState(() {
-                if (sel) {
-                  gekozen.add(o);
-                } else {
-                  gekozen.remove(o);
-                }
-              }),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-
-  Widget _tekst(String label, String waarde, ValueChanged<String> onChanged) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: TextFormField(
-          initialValue: waarde,
-          decoration: InputDecoration(
-            labelText: label,
-            border: const OutlineInputBorder(),
-            isDense: true,
-          ),
-          onChanged: onChanged,
-        ),
-      );
-
-  Widget _rijKaart({
-    required String titel,
-    required List<Widget> children,
-    bool initieelOpen = false,
-  }) {
-    return Card(
-      elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerHighest
-          .withValues(alpha: 0.4),
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: ExpansionTile(
-        initiallyExpanded: initieelOpen,
-        tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        title: Text(titel, style: const TextStyle(fontSize: 14)),
-        children: children,
-      ),
-    );
-  }
+class _KamersState extends _LijstSchermState<_KamersScherm> {
+  @override
+  String get titel => 'Kamers';
+  @override
+  int get aantal => widget.d.units.length;
+  @override
+  void voegToe() =>
+      widget.d.units.add(WwsOnzKamer(naam: 'Kamer ${widget.d.units.length + 1}'));
+  @override
+  List<Widget> bouwItems() => [
+        for (var i = 0; i < widget.d.units.length; i++)
+          kamerEditor(widget.d.units[i], i, () => widget.d.units.removeAt(i)),
+      ];
 }
