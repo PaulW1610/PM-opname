@@ -39,9 +39,23 @@ Batch uit de logboeken (13 aug → 8 sep), in overleg met Paul in deze volgorde:
   een losse foto in de dossier-root is handmatig, niet door de app (afgevangen,
   genoteerd in WENSEN).
 
-**Nog open (GEBLOKKEERD):** WWS-onzelfstandig-scherm (`POST /bd/v1/wws-onz`) —
-wacht op de veldspec `blueprint-collective docs/wws-onzelfstandig/REGELS.md §2`
-(opgevraagd in APP-API-WENSEN). 21 tests groen; app op 2.8.1+27.
+## 2026-09-08 — WWS keuze zelfstandig/onzelfstandig + onzelfstandig-scherm (2.9.0+29)
+
+- **WWS-knop → keuze** zelfstandig / onzelfstandig (bottom sheet in
+  `start_screen`).
+- **WWS onzelfstandig gebouwd** (veldspec `REGELS.md` + `testdossier.json`
+  kwamen binnen): `lib/models/wws_onz_data.dart` (model + alle keuzelijsten,
+  `toJson` exact in het dossier-formaat) + `lib/screens/wws_onz_screen.dart`
+  (secties Gebouw, Gedeelde ruimtes, Extra gedeelde ruimtes, Buitenruimtes,
+  Kamers met eigen voorzieningen + geneste ruimten). "Bereken punten" →
+  `BlueprintApiService.rekenWwsOnz` (`POST /bd/v1/wws-onz`, server rekent) →
+  totaal + per kamer punten/max huur. `saveWwsOnz` (`POST /entiteit/{id}/wws-onz`)
+  staat klaar als service. Voorgevuld met adres/postcode/plaats/bouwjaar/WOZ/label.
+- v1-vereenvoudigingen: voorzieningen aan/uit (aantal 1); COROP handmatig
+  (default Utrecht); opslaan-bij-eenheid nog niet als knop. Test
+  `wws_onz_json_test`. 22 tests groen.
+
+## 2026-09-08 — Veldbevindingen verwerkt (2.8.0+26)
 
 ## 2026-08-15 — Volumeknop-sluiter blijft werken (2.7.1+23)
 
