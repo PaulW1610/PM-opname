@@ -22,6 +22,7 @@ import 'opname_afsluiten_screen.dart';
 import 'photo_selection_screen.dart';
 import 'portefeuille_scherm.dart';
 import 'wws_invoer_screen.dart';
+import 'wws_onz_screen.dart';
 
 /// Start screen to fetch current location and building address.
 ///
@@ -1942,23 +1943,24 @@ class _StartScreenState extends State<StartScreen> {
   }
 
   Future<void> _openWwsOnzelfstandig() async {
-    // Het invoerscherm wordt gebouwd zodra de rekenregels (veldspec) binnen
-    // zijn; de keuze staat er alvast zodat de flow compleet is.
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('WWS onzelfstandig'),
-        content: const Text(
-          'Het kamerpuntenstelsel (onzelfstandige woonruimte) komt eraan. '
-          'Het invoerscherm wordt gebouwd zodra de rekenregels binnen zijn.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('OK'),
+    if (_bagData == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => WwsOnzScreen(
+          dossierNaam: _bagData!.getFolderName(),
+          adres: [
+            (_bagData!.adres ?? '').trim(),
+            (_bagData!.huisnummer ?? '').trim(),
+            (_bagData!.huisletterHuisnummertoevoeging ?? '').trim(),
+          ].where((s) => s.isNotEmpty).join(' '),
+          postcode: _bagData!.postcode.trim(),
+          plaats: _bagData!.plaatsnaam.trim(),
+          bouwjaar: int.tryParse(
+            (_bagData!.oorspronkelijkBouwjaar ?? '').trim(),
           ),
-        ],
+          wozVoorgevuld: _wozWaarde?.toDouble(),
+          energieLabelVoorgevuld: _energieLabel,
+        ),
       ),
     );
   }

@@ -416,6 +416,36 @@ class BlueprintApiService {
     return WozLookupResult.fromJson(data);
   }
 
+  /// `POST /bd/v1/wws-onz` (§3.2b, publiek) — puntentelling onzelfstandige
+  /// woonruimte (kamerverhuur). De server rekent; body = het volledige
+  /// dossier-JSON. Geeft de rauwe respons terug (pand + units + totaal).
+  static Future<Map<String, dynamic>> rekenWwsOnz(
+    Map<String, dynamic> dossier,
+  ) async {
+    final config = await loadConfig();
+    return _postJson(
+      url: config.scopedPath('wws-onz'),
+      payload: dossier,
+      withAuth: false,
+      expectedStatusCodes: const <int>{200},
+    );
+  }
+
+  /// `POST /bd/v1/entiteit/{id}/wws-onz` (beveiligd) — het WWS-onzelfstandig-
+  /// dossier bij een bestaande eenheid opslaan; de server herrekent zelf.
+  static Future<Map<String, dynamic>> saveWwsOnz({
+    required int entiteitId,
+    required Map<String, dynamic> dossier,
+  }) async {
+    final config = await loadConfig();
+    return _postJson(
+      url: config.scopedPath('entiteit/$entiteitId/wws-onz'),
+      payload: dossier,
+      withAuth: true,
+      expectedStatusCodes: const <int>{200},
+    );
+  }
+
   /// `POST /bd/v1/eplabel` (§3.1b, publiek) — geregistreerd energielabel
   /// (labelklasse + bouwjaar + Ag) per adres uit EP-Online. De server houdt de
   /// EP-Online API-key; de app hoeft niets in te stellen.
