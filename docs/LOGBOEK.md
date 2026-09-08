@@ -5,6 +5,36 @@ Nieuwste bovenaan. De API-afspraken met de website staan in
 `OneDrive/Apps/APP-API.md`; wensen richting de plugin-kant in
 `APP-API-WENSEN.md`.
 
+## 2026-09-08 — WWS onzelfstandig afgemaakt + iOS 15 (2.9.4+33)
+
+Vervolg op dezelfde dag; WWS-onzelfstandig (kamerverhuur) verder afgewerkt en
+een paar bevindingen uit het veld opgelost.
+
+- **WWS onzelfstandig in blokjes-stijl.** Na de WWS-knop een keuze zelfstandig /
+  onzelfstandig; het onzelfstandig-scherm heeft nu dezelfde tegel-grid als de
+  zelfstandige WWS (Gebouw / Gedeelde ruimtes / Extra gedeeld / Buitenruimtes /
+  Kamers), elk met sub-scherm. Bereken → `POST /bd/v1/wws-onz`.
+- **Keuzes als nette aanvinkvakjes.** Keuken-/sanitairvoorzieningen en
+  aftrekpunten waren rommelige FilterChips; nu net als de zelfstandige WWS:
+  voorzieningen als teller-rijen (−/aantal/+), aftrekpunten als CheckboxListTile.
+- **WOZ ophalen in onzelfstandig.** Gebouw-scherm heeft nu een knop "Ophalen"
+  naast WOZ-waarde die live `POST /bd/v1/woz` doet (postcode + huisnummer +
+  toevoeging uit het opgehaalde adres) en de waarde invult, met melding +
+  peildatum. Huisnummer/toevoeging worden vanaf het startscherm meegegeven.
+- **Bouwfout ontdekt: kale `flutter run` = geen BAG-sleutel.** "Adres ophalen"
+  faalde ("bag sleutel ontbreekt in deze build") omdat een directe `flutter run`
+  de dart-defines oversloeg. Altijd bouwen via `./tool/run_ios.sh` of
+  `./tool/build_testflight.sh` — die geven `tool/dart_defines.json` mee.
+- **iOS deployment target 13.0 → 15.0.** Lost Apple-waarschuwing 90068 op
+  (vanaf voorjaar 2027 eist App Store Connect iOS 15.0+). Aangepast in Podfile
+  (platform + post_install voor alle pods) en de drie configs in
+  `Runner.xcodeproj`; `pod install` gedraaid; geverifieerd dat de gebouwde IPA
+  `MinimumOSVersion = 15.0` heeft. TestFlight-upload nu zonder waarschuwingen.
+- **Nog te doen (later):** serverproef van het WWS-onz-dossier; eventueel
+  aantallen>1 per voorziening in de output; postcode→COROP auto-invullen;
+  "opslaan bij eenheid"-knop. Nieuw spoor: geometrie ook handmatig invoeren →
+  hoe komt dat in de XML én voortaan ook naar Uniec 3 (afstemmen pc-kant).
+
 ## 2026-09-08 — Veldbevindingen verwerkt (2.8.0+26)
 
 Batch uit de logboeken (13 aug → 8 sep), in overleg met Paul in deze volgorde:
