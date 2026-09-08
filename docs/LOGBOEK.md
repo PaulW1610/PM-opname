@@ -46,7 +46,7 @@ Batch uit de logboeken (13 aug → 8 sep), in overleg met Paul in deze volgorde:
 - **WWS onzelfstandig gebouwd** (veldspec `REGELS.md` + `testdossier.json`
   kwamen binnen): `lib/models/wws_onz_data.dart` (model + alle keuzelijsten,
   `toJson` exact in het dossier-formaat) + `lib/screens/wws_onz_screen.dart`
-  (secties Gebouw, Gedeelde ruimtes, Extra gedeelde ruimtes, Buitenruimtes,
+  (2.9.1: tegel/blokjes-opzet zoals de zelfstandige WWS — tegels Gebouw, Gedeelde ruimtes, Extra gedeelde ruimtes, Buitenruimtes,
   Kamers met eigen voorzieningen + geneste ruimten). "Bereken punten" →
   `BlueprintApiService.rekenWwsOnz` (`POST /bd/v1/wws-onz`, server rekent) →
   totaal + per kamer punten/max huur. `saveWwsOnz` (`POST /entiteit/{id}/wws-onz`)
