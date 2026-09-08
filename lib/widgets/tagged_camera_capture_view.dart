@@ -808,6 +808,21 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
         'camera_capture_saved',
         data: {'label': label},
       );
+      // Hint na een CV-foto: het typeplaatje is de kernfoto en zit vaak achter
+      // de frontklep — herinner de opnemer eraan als die er nog niet is.
+      if (mounted &&
+          _normalizeLabel(label) == 'cv' &&
+          !_hasSavedLabel('CV plaatje')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            duration: Duration(seconds: 4),
+            content: Text(
+              'Vergeet de "CV plaatje" niet: open de frontklep en '
+              'fotografeer het typeplaatje.',
+            ),
+          ),
+        );
+      }
       widget.onPhotoSaved?.call();
     } catch (error) {
       await StabilityLoggerService.recordException(
