@@ -30,9 +30,18 @@ Batch uit de logboeken (13 aug → 8 sep), in overleg met Paul in deze volgorde:
   narekenen op `POST bd/v1/wws`; aangeleverd MET-TELLERS-bestand was exact de
   huidige versie + tellers, dus overgenomen.
 
-Nog open van deze batch: basis-URL als instelling (collective.nl-migratie),
-WWS-onzelfstandig-scherm, polish (CV-plaatje verplicht bij gasketel,
-losse-foto-waarschuwing). 21 tests groen.
+- **Basis-URL (opdracht 21 aug):** bleek al een instelling (URL + namespace
+  apart, in Instellingen; defaults in code). Migratie = instelling, geen
+  release. Twee-sites-splitsing bewust nog niet gebouwd (wacht op besluit welke
+  endpoints meeverhuizen).
+- **Polish (2.8.1+27):** na een `CV`-foto een hint om ook het CV-typeplaatje te
+  maken (frontklep). Losse-foto's: app schrijft altijd naar `foto's/`-submap —
+  een losse foto in de dossier-root is handmatig, niet door de app (afgevangen,
+  genoteerd in WENSEN).
+
+**Nog open (GEBLOKKEERD):** WWS-onzelfstandig-scherm (`POST /bd/v1/wws-onz`) —
+wacht op de veldspec `blueprint-collective docs/wws-onzelfstandig/REGELS.md §2`
+(opgevraagd in APP-API-WENSEN). 21 tests groen; app op 2.8.1+27.
 
 ## 2026-08-15 — Volumeknop-sluiter blijft werken (2.7.1+23)
 
