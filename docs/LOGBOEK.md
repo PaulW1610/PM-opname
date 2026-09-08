@@ -55,8 +55,6 @@ Batch uit de logboeken (13 aug → 8 sep), in overleg met Paul in deze volgorde:
   (default Utrecht); opslaan-bij-eenheid nog niet als knop. Test
   `wws_onz_json_test`. 22 tests groen.
 
-## 2026-09-08 — Veldbevindingen verwerkt (2.8.0+26)
-
 ## 2026-08-15 — Volumeknop-sluiter blijft werken (2.7.1+23)
 
 Klacht Paul: de volumeknop-sluiter stopte "na een tijdje" (juist lastig bij
