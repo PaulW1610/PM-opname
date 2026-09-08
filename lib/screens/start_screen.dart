@@ -1897,6 +1897,72 @@ class _StartScreenState extends State<StartScreen> {
     );
   }
 
+  /// Keuze na de WWS-knop: zelfstandige woning of onzelfstandig (kamerverhuur).
+  Future<void> _kiesWwsSoort() async {
+    if (_bagData == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Haal eerst een adres op voor het dossier.')),
+      );
+      return;
+    }
+    final keuze = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text('Welke puntentelling?',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.home_outlined),
+              title: const Text('WWS zelfstandig'),
+              subtitle: const Text('Zelfstandige woonruimte (hele woning)'),
+              onTap: () => Navigator.of(sheetContext).pop('zelfstandig'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.meeting_room_outlined),
+              title: const Text('WWS onzelfstandig'),
+              subtitle: const Text('Kamerverhuur (per kamer)'),
+              onTap: () => Navigator.of(sheetContext).pop('onzelfstandig'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || keuze == null) return;
+    if (keuze == 'zelfstandig') {
+      await _openWwsInvoer();
+    } else {
+      await _openWwsOnzelfstandig();
+    }
+  }
+
+  Future<void> _openWwsOnzelfstandig() async {
+    // Het invoerscherm wordt gebouwd zodra de rekenregels (veldspec) binnen
+    // zijn; de keuze staat er alvast zodat de flow compleet is.
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('WWS onzelfstandig'),
+        content: const Text(
+          'Het kamerpuntenstelsel (onzelfstandige woonruimte) komt eraan. '
+          'Het invoerscherm wordt gebouwd zodra de rekenregels binnen zijn.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _openWwsInvoer() async {
     if (_bagData == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2433,7 +2499,7 @@ class _StartScreenState extends State<StartScreen> {
       BrandTileButton(
         icon: Icons.calculate_outlined,
         label: 'WWS',
-        onPressed: (busy || !hasAddress) ? null : _openWwsInvoer,
+        onPressed: (busy || !hasAddress) ? null : _kiesWwsSoort,
       ),
       BrandTileButton(
         icon: Icons.account_tree_outlined,
