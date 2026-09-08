@@ -240,6 +240,31 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     super.dispose();
   }
 
+  /// Verstuurt de eenheid naar de website en vertaalt het resultaat naar een
+  /// leesbare melding (mét HTTP-status + tijd bij een fout, zodat een mislukte
+  /// upload nooit stil wegvalt en te matchen is met de serverlogs).
+  Future<({bool ok, String melding})> _verstuurNaarWebsite(
+    BagData bagData,
+    File bewijsFoto,
+  ) async {
+    try {
+      final info = await _syncNaarBlueprintObject(bagData, bewijsFoto: bewijsFoto);
+      return (ok: true, melding: info);
+    } on BlueprintApiException catch (e) {
+      final t = DateTime.now();
+      final tijd = '${t.hour.toString().padLeft(2, '0')}:'
+          '${t.minute.toString().padLeft(2, '0')}:'
+          '${t.second.toString().padLeft(2, '0')}';
+      return (
+        ok: false,
+        melding: 'Website: eenheid NIET aangemaakt — HTTP ${e.status} '
+            '(${e.code}) om $tijd. ${e.message}'
+      );
+    } catch (e) {
+      return (ok: false, melding: 'Website: eenheid NIET aangemaakt — $e');
+    }
+  }
+
   Future<String> _syncNaarBlueprintObject(
     BagData bagData, {
     required File bewijsFoto,
@@ -756,46 +781,67 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
         aangeleverdeGegevens: _aangeleverdeGegevens.toList(growable: false),
       );
 
-      // 4. Eenheid op de website (blueprint-data.nl) — best-effort.
-      try {
-        final websiteInfo = await _syncNaarBlueprintObject(
-          bagData,
-          bewijsFoto: File(formResult.imageFilePath),
-        );
-        meldingen.add(websiteInfo);
-      } on BlueprintApiException catch (error) {
-        meldingen.add('Websitekoppeling mislukt (${error.code}): ${error.message}');
-      } catch (error) {
-        meldingen.add('Websitekoppeling mislukt: $error');
-      }
+      // 4. Eenheid op de website (blueprint-data.nl) — best-effort, met retry.
+      final bewijsFoto = File(formResult.imageFilePath);
+      var website = await _verstuurNaarWebsite(bagData, bewijsFoto);
+      meldingen.add(website.melding);
 
       if (mounted) {
         setState(() {
           _bagPdfStatus = 'Gegenereerd';
         });
       }
-      // Formulierstaat is verstuurd/opgeslagen; het bewaarde concept mag weg.
-      await AfsluitFormStore.wis(widget.dossierName);
+      // Formulier-concept pas wissen als de website ook gelukt is; anders kan
+      // de opnemer nog opnieuw versturen.
+      if (website.ok) {
+        await AfsluitFormStore.wis(widget.dossierName);
+      }
 
       if (!mounted) return;
+      final kop = 'Bouwjaar: $bouwjaar (bron: ${_resolveBouwjaarBron()})'
+          '${_gebouwhoogte.isNotEmpty ? '\nGebouwhoogte: $_gebouwhoogte m (3DBAG)' : ''}';
       await showDialog<void>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Opname afgesloten'),
-          content: SingleChildScrollView(
-            child: Text(
-              'Bouwjaar: $bouwjaar (bron: ${_resolveBouwjaarBron()})'
-              '${_gebouwhoogte.isNotEmpty ? '\nGebouwhoogte: $_gebouwhoogte m (3DBAG)' : ''}'
-              '\n\n${meldingen.join('\n')}',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
+        builder: (dialogContext) {
+          var bezig = false;
+          return StatefulBuilder(
+            builder: (ctx, setDialogState) {
+              return AlertDialog(
+                title: Text(website.ok
+                    ? 'Opname afgesloten'
+                    : 'Afgesloten — website nog niet gelukt'),
+                content: SingleChildScrollView(
+                  child: Text('$kop\n\n${meldingen.join('\n')}'),
+                ),
+                actions: [
+                  if (!website.ok)
+                    TextButton(
+                      onPressed: bezig
+                          ? null
+                          : () async {
+                              setDialogState(() => bezig = true);
+                              final r = await _verstuurNaarWebsite(
+                                  bagData, bewijsFoto);
+                              website = r;
+                              meldingen[meldingen.length - 1] = r.melding;
+                              if (r.ok) {
+                                await AfsluitFormStore.wis(widget.dossierName);
+                              }
+                              if (ctx.mounted) {
+                                setDialogState(() => bezig = false);
+                              }
+                            },
+                      child: Text(bezig ? 'Bezig…' : 'Opnieuw naar website'),
+                    ),
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Sluiten'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
       );
       if (!mounted) return;
       Navigator.of(context).pop(true);
