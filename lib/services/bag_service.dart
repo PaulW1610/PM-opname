@@ -618,11 +618,23 @@ class BagService {
         .toLowerCase();
   }
 
+  /// True als de plaats leeg is of de oude placeholder "Locatie" bevat (die
+  /// lekte via de GPS-terugval het adresveld in).
+  static bool _isLegePlaats(String? plaats) {
+    final s = (plaats ?? '').trim().toLowerCase();
+    return s.isEmpty || s == 'locatie';
+  }
+
   static Future<BagData> resolveBagDataForExport({
     required BagData bagData,
     required String apiKey,
   }) async {
     var resolved = bagData;
+
+    // "Locatie"-placeholder nooit als echte plaats laten staan.
+    if (resolved.plaatsnaam.trim().isNotEmpty && _isLegePlaats(resolved.plaatsnaam)) {
+      resolved = resolved.copyWith(plaatsnaam: '');
+    }
 
     try {
       resolved = await _enrichWithPandBouwjaarIfNeeded(
@@ -632,11 +644,14 @@ class BagService {
     } catch (_) {}
 
     final needsBouwjaar = !_isValidBouwjaar(resolved.oorspronkelijkBouwjaar);
+    // Adres onvolledig? Straat leeg of plaats leeg/placeholder → via BAG halen.
+    final needsAddress =
+        (resolved.adres ?? '').trim().isEmpty || _isLegePlaats(resolved.plaatsnaam);
     final hasAddressLookupInput =
         resolved.postcode.trim().isNotEmpty &&
         (resolved.huisnummer ?? '').trim().isNotEmpty;
 
-    if (needsBouwjaar && hasAddressLookupInput) {
+    if ((needsBouwjaar || needsAddress) && hasAddressLookupInput) {
       try {
         final lookedUp = await lookupByAddress(
           resolved.postcode,
@@ -645,6 +660,17 @@ class BagService {
         );
 
         resolved = resolved.copyWith(
+          // Adresvelden aanvullen uit de BAG als ze ontbreken/placeholder zijn.
+          adres: (resolved.adres ?? '').trim().isNotEmpty
+              ? resolved.adres
+              : lookedUp.adres,
+          plaatsnaam: _isLegePlaats(resolved.plaatsnaam)
+              ? lookedUp.plaatsnaam
+              : resolved.plaatsnaam,
+          huisletterHuisnummertoevoeging:
+              (resolved.huisletterHuisnummertoevoeging ?? '').trim().isNotEmpty
+                  ? resolved.huisletterHuisnummertoevoeging
+                  : lookedUp.huisletterHuisnummertoevoeging,
           bagPandId: (resolved.bagPandId ?? '').trim().isNotEmpty
               ? resolved.bagPandId
               : lookedUp.bagPandId,
@@ -670,6 +696,11 @@ class BagService {
 
     return resolved;
   }
+
+  /// True als het adres (straat + plaats) compleet genoeg is om te exporteren.
+  static bool heeftCompleetAdres(BagData bagData) =>
+      (bagData.adres ?? '').trim().isNotEmpty &&
+      !_isLegePlaats(bagData.plaatsnaam);
 
   /// Genereert een BAG PDF op basis van gecombineerde endpoint-data.
   ///

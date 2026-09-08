@@ -1491,7 +1491,10 @@ class _StartScreenState extends State<StartScreen> {
         plaatsnaam: placemark?.locality ??
             placemark?.subAdministrativeArea ??
             placemark?.administrativeArea ??
-            'Locatie',
+            // Geen placeholder: een lege plaats wordt bij de export via de
+            // BAG-lookup op postcode+huisnummer aangevuld (voorheen lekte hier
+            // de tekst "Locatie" het adresveld in).
+            '',
       );
       // Invulvelden vullen: kwam het adres van PDOK, dan is dat de betere bron.
       final pdokTreffer = selectedBagData;

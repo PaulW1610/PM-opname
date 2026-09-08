@@ -517,6 +517,39 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       await _prefillBouwjaarFromBag();
       await _prefillGebouwhoogteFrom3dBag();
       final bagData = _resolvedBagData ?? widget.bagData;
+
+      // Adres compleet? Straat/plaats moeten gevuld zijn (geen placeholder),
+      // anders komt de eenheid als "53 Locatie 2101HL" op de site.
+      if (!BagService.heeftCompleetAdres(bagData)) {
+        if (!mounted) return;
+        setState(() => _isSaving = false);
+        final tochDoorgaan = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Adres onvolledig'),
+            content: Text(
+              'Straat en/of plaats ontbreken (BAG-lookup op '
+              '${bagData.postcode} ${bagData.huisnummer ?? ''} lukte niet). '
+              'De opname komt dan zonder net adres binnen.\n\n'
+              'Ga terug en haal het adres opnieuw op, of sluit toch af.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Terug'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Toch afsluiten'),
+              ),
+            ],
+          ),
+        );
+        if (tochDoorgaan != true) return;
+        if (!mounted) return;
+        setState(() => _isSaving = true);
+      }
+
       final bouwjaar = _resolveBouwjaarForExport();
       if (bouwjaar.isEmpty || bouwjaar == '0') {
         throw Exception(
