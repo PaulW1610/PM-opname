@@ -1955,6 +1955,8 @@ class _StartScreenState extends State<StartScreen> {
           ].where((s) => s.isNotEmpty).join(' '),
           postcode: _bagData!.postcode.trim(),
           plaats: _bagData!.plaatsnaam.trim(),
+          huisnummer: (_bagData!.huisnummer ?? '').trim(),
+          toevoeging: (_bagData!.huisletterHuisnummertoevoeging ?? '').trim(),
           bouwjaar: int.tryParse(
             (_bagData!.oorspronkelijkBouwjaar ?? '').trim(),
           ),

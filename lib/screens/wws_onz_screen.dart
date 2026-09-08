@@ -77,6 +77,8 @@ mixin _WwsOnzVelden<T extends StatefulWidget> on State<T> {
       );
 
   /// Voorziening-kiezer: aangevinkt = aantal 1.
+  /// Voorzieningen met aantal-teller (net als de kenmerk-rijen bij de
+  /// zelfstandige WWS): per optie een nette rij met −/aantal/+.
   Widget vVoorzieningen(
       String titel, List<String> opties, Map<String, int> map) {
     return Column(
@@ -86,29 +88,23 @@ mixin _WwsOnzVelden<T extends StatefulWidget> on State<T> {
           padding: const EdgeInsets.only(top: 8, bottom: 2),
           child: Text(titel, style: Theme.of(context).textTheme.labelMedium),
         ),
-        Wrap(
-          spacing: 6,
-          runSpacing: 2,
-          children: opties.map((o) {
-            final aan = (map[o] ?? 0) > 0;
-            return FilterChip(
-              label: Text(o, style: const TextStyle(fontSize: 12)),
-              selected: aan,
-              onSelected: (sel) => setState(() {
-                if (sel) {
-                  map[o] = 1;
+        ...opties.map((o) => _VoorzieningRij(
+              label: o,
+              aantal: map[o] ?? 0,
+              onChanged: (n) => setState(() {
+                if (n > 0) {
+                  map[o] = n;
                 } else {
                   map.remove(o);
                 }
               }),
-            );
-          }).toList(),
-        ),
+            )),
       ],
     );
   }
 
   /// Multiselect van vaste teksten → lijst van strings (aftrekpunten).
+  /// Nette aanvinkvakjes, net als bij de zelfstandige WWS.
   Widget vTekstlijst(String titel, List<String> opties, List<String> gekozen) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -117,24 +113,20 @@ mixin _WwsOnzVelden<T extends StatefulWidget> on State<T> {
           padding: const EdgeInsets.only(top: 8, bottom: 2),
           child: Text(titel, style: Theme.of(context).textTheme.labelMedium),
         ),
-        Wrap(
-          spacing: 6,
-          runSpacing: 2,
-          children: opties.map((o) {
-            final aan = gekozen.contains(o);
-            return FilterChip(
-              label: Text(o, style: const TextStyle(fontSize: 12)),
-              selected: aan,
-              onSelected: (sel) => setState(() {
-                if (sel) {
-                  gekozen.add(o);
+        ...opties.map((o) => CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(o),
+              value: gekozen.contains(o),
+              onChanged: (sel) => setState(() {
+                if (sel == true) {
+                  if (!gekozen.contains(o)) gekozen.add(o);
                 } else {
                   gekozen.remove(o);
                 }
               }),
-            );
-          }).toList(),
-        ),
+            )),
       ],
     );
   }
@@ -328,6 +320,8 @@ class WwsOnzScreen extends StatefulWidget {
   final String adres;
   final String postcode;
   final String plaats;
+  final String huisnummer;
+  final String toevoeging;
   final int? bouwjaar;
   final double? wozVoorgevuld;
   final String? energieLabelVoorgevuld;
@@ -338,6 +332,8 @@ class WwsOnzScreen extends StatefulWidget {
     this.adres = '',
     this.postcode = '',
     this.plaats = '',
+    this.huisnummer = '',
+    this.toevoeging = '',
     this.bouwjaar,
     this.wozVoorgevuld,
     this.energieLabelVoorgevuld,
@@ -405,7 +401,8 @@ class _WwsOnzScreenState extends State<WwsOnzScreen> {
         Icons.apartment,
         '${_d.occupants} bewoners · ${_d.label}',
         _d.occupants > 0 && _d.woz > 0,
-        () => _open(_GebouwScherm(_d)),
+        () => _open(_GebouwScherm(_d,
+            huisnummer: widget.huisnummer, toevoeging: widget.toevoeging)),
       ),
       _Tegel(
         'Gedeelde ruimtes',
@@ -583,12 +580,57 @@ class _WwsOnzScreenState extends State<WwsOnzScreen> {
 
 class _GebouwScherm extends StatefulWidget {
   final WwsOnzDossier d;
-  const _GebouwScherm(this.d);
+  final String huisnummer;
+  final String toevoeging;
+  const _GebouwScherm(this.d, {this.huisnummer = '', this.toevoeging = ''});
   @override
   State<_GebouwScherm> createState() => _GebouwSchermState();
 }
 
 class _GebouwSchermState extends State<_GebouwScherm> with _WwsOnzVelden {
+  bool _wozBezig = false;
+
+  Future<void> _haalWoz() async {
+    final d = widget.d;
+    final postcode = d.postcode.replaceAll(' ', '').trim();
+    if (postcode.isEmpty || widget.huisnummer.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Geen postcode + huisnummer bekend; haal eerst een '
+            'adres op via het startscherm.'),
+      ));
+      return;
+    }
+    setState(() => _wozBezig = true);
+    try {
+      final res = await BlueprintApiService.lookupWoz(
+        postcode: postcode,
+        huisnummer: widget.huisnummer.trim(),
+        toevoeging: widget.toevoeging.trim(),
+      );
+      if (!mounted) return;
+      if (res.status == WozStatus.ok && (res.waarde ?? 0) > 0) {
+        setState(() => d.woz = res.waarde!.toDouble());
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('WOZ opgehaald: € ${res.waarde}'
+              '${res.peildatum.isNotEmpty ? ' (peildatum ${res.peildatum})' : ''}'),
+        ));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(res.melding.isNotEmpty
+              ? res.melding
+              : 'Geen WOZ-waarde gevonden voor dit adres.'),
+        ));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('WOZ ophalen mislukt: $e'),
+      ));
+    } finally {
+      if (mounted) setState(() => _wozBezig = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final d = widget.d;
@@ -601,7 +643,28 @@ class _GebouwSchermState extends State<_GebouwScherm> with _WwsOnzVelden {
               (v) => d.occupants = v.round(),
               isInt: true),
           vNum('GBO pand (m², uit WOZ)', d.gbo, (v) => d.gbo = v),
-          vNum('WOZ-waarde pand (€)', d.woz, (v) => d.woz = v),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: vNum('WOZ-waarde pand (€)', d.woz, (v) => d.woz = v),
+              ),
+              const SizedBox(width: 8),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: FilledButton.tonalIcon(
+                  onPressed: _wozBezig ? null : _haalWoz,
+                  icon: _wozBezig
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.download, size: 18),
+                  label: const Text('Ophalen'),
+                ),
+              ),
+            ],
+          ),
           vDropdown('COROP-gebied', d.corop, WwsOnzKeuzes.coropGebieden,
               (v) => d.corop = v),
           vDropdown('Energielabel pand', d.label, WwsOnzKeuzes.energielabels,
@@ -731,4 +794,119 @@ class _KamersState extends _LijstSchermState<_KamersScherm> {
         for (var i = 0; i < widget.d.units.length; i++)
           kamerEditor(widget.d.units[i], i, () => widget.d.units.removeAt(i)),
       ];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Voorziening-rij met aantal-teller (zelfde stijl als de zelfstandige WWS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _VoorzieningRij extends StatelessWidget {
+  final String label;
+  final int aantal;
+  final ValueChanged<int> onChanged;
+
+  const _VoorzieningRij({
+    required this.label,
+    required this.aantal,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final actief = aantal > 0;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: actief ? const Color(0xFFE7F6EC) : const Color(0xFFF5F6F8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: actief ? const Color(0xFFA5D6A7) : const Color(0xFFE4E6EA),
+          width: actief ? 1.4 : 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: actief ? FontWeight.w600 : FontWeight.normal,
+                    color: actief ? const Color(0xFF1B5E20) : Colors.black87,
+                  ),
+            ),
+          ),
+          _RondeVoorzKnop(
+            icon: Icons.remove,
+            onTap: actief ? () => onChanged(aantal - 1) : null,
+          ),
+          Container(
+            width: 34,
+            alignment: Alignment.center,
+            child: Text(
+              '$aantal',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+                color: actief ? const Color(0xFF2E7D32) : Colors.black38,
+              ),
+            ),
+          ),
+          _RondeVoorzKnop(
+            icon: Icons.add,
+            onTap: () => onChanged(aantal + 1),
+            primair: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Ronde +/- knop voor de voorziening-teller.
+class _RondeVoorzKnop extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool primair;
+
+  const _RondeVoorzKnop({
+    required this.icon,
+    required this.onTap,
+    this.primair = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final actief = onTap != null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Material(
+        color: !actief
+            ? const Color(0xFFECEDEF)
+            : primair
+                ? const Color(0xFF2E7D32)
+                : const Color(0xFFFFFFFF),
+        shape: const CircleBorder(),
+        elevation: actief ? 1 : 0,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            width: 38,
+            height: 38,
+            child: Icon(
+              icon,
+              size: 20,
+              color: !actief
+                  ? Colors.black26
+                  : primair
+                      ? Colors.white
+                      : const Color(0xFF2E7D32),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
