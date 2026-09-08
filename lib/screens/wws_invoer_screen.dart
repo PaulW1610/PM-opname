@@ -40,6 +40,17 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
   bool _berekenenBusy = false;
   String? _berekenFout;
 
+  // Rubriek-nummers per tegel — zelfde koppeling als de website
+  // (wws.js kaartRubrieken): zo tellen de tegels identiek mee.
+  static const Map<String, List<int>> _tegelRubrieken = {
+    'Binnenruimtes': [1, 2, 3],
+    'Buitenruimtes': [8],
+    'Keuken': [5],
+    'Sanitair': [6],
+    'Energie & Type': [4],
+    'WOZ-waarde': [11],
+  };
+
   @override
   void initState() {
     super.initState();
@@ -70,12 +81,50 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
         'vrije_sector': maxHuur.isEmpty,
       };
     }
+
+    // Tellertjes meteen vullen bij het openen van een bestaande opname: de
+    // opgeslagen telling kent geen rubriek-uitsplitsing, dus één keer stil
+    // narekenen op de server (Pauls wens 7-9: punten per tegel, net als op
+    // de website).
+    if (_toepassen && _ietsIngevuld) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _bereken(stil: true));
+    }
   }
 
-  Future<void> _bereken() async {
+  bool get _ietsIngevuld =>
+      _opname.binnenruimtes.isNotEmpty ||
+      _opname.buitenruimtes.isNotEmpty ||
+      _opname.keukenKenmerken.isNotEmpty ||
+      (_opname.sanitairBasis + _opname.sanitairExtra).isNotEmpty ||
+      _opname.energieLabel.isNotEmpty ||
+      _opname.wozWaarde > 0;
+
+  /// Punten voor één tegel: som van de bijbehorende WWS-rubrieken uit de
+  /// laatste (live) berekening. Null zolang er nog geen berekening is.
+  double? _tegelPunten(String label) {
+    final rubrieken = _berekening?['rubrieken'];
+    if (rubrieken is! Map) return null;
+    final nummers = _tegelRubrieken[label];
+    if (nummers == null) return null;
+    double som = 0;
+    for (final nr in nummers) {
+      final w = rubrieken['$nr'] ?? rubrieken[nr];
+      if (w is num) som += w.toDouble();
+    }
+    return som;
+  }
+
+  /// Herbereken automatisch na elke wijziging vanuit een deelscherm, zodat
+  /// de tellertjes op de tegels live meelopen. `stil`: fouten (bijv. even
+  /// geen internet op locatie) niet als blokkade tonen.
+  void _herbereken() {
+    if (_toepassen && _ietsIngevuld) _bereken(stil: true);
+  }
+
+  Future<void> _bereken({bool stil = false}) async {
     setState(() {
       _berekenenBusy = true;
-      _berekenFout = null;
+      if (!stil) _berekenFout = null;
     });
     try {
       final result = await BlueprintApiService.calculateWws(_opname.toApiJson());
@@ -83,12 +132,15 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
       setState(() {
         _berekening = result;
         _berekenenBusy = false;
+        if (stil) _berekenFout = null;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _berekenenBusy = false;
-        _berekenFout = e.toString();
+        // Stil narekenen mag falen (geen internet op locatie): de oude
+        // stand blijft dan staan, zonder foutmelding in beeld.
+        if (!stil) _berekenFout = e.toString();
       });
     }
   }
@@ -126,7 +178,10 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
         builder: (_) => _BinnenruimtesScreen(initial: _opname.binnenruimtes),
       ),
     );
-    if (result != null) setState(() => _opname = _opname.copyWith(binnenruimtes: result));
+    if (result != null) {
+      setState(() => _opname = _opname.copyWith(binnenruimtes: result));
+      _herbereken();
+    }
   }
 
   Future<void> _openBuitenruimtes() async {
@@ -135,7 +190,10 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
         builder: (_) => _BuitenruimtesScreen(initial: _opname.buitenruimtes),
       ),
     );
-    if (result != null) setState(() => _opname = _opname.copyWith(buitenruimtes: result));
+    if (result != null) {
+      setState(() => _opname = _opname.copyWith(buitenruimtes: result));
+      _herbereken();
+    }
   }
 
   Future<void> _openKeuken() async {
@@ -152,6 +210,7 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
             keukenKenmerken: result.kenmerken,
             aanrechtlengte: result.aanrechtlengte,
           ));
+      _herbereken();
     }
   }
 
@@ -169,6 +228,7 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
             sanitairBasis: result.basis,
             sanitairExtra: result.extra,
           ));
+      _herbereken();
     }
   }
 
@@ -188,6 +248,7 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
             woningtype: result.woningtype,
             bouwjaar: result.bouwjaar,
           ));
+      _herbereken();
     }
   }
 
@@ -207,6 +268,7 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
             wozJaar: result.jaar,
             wozBron: result.bron,
           ));
+      _herbereken();
     }
   }
 
@@ -265,17 +327,23 @@ class _WwsInvoerScreenState extends State<WwsInvoerScreen> {
   Widget build(BuildContext context) {
     final tiles = [
       _TileData(label: 'Binnenruimtes', icon: Icons.meeting_room,
-          subtitle: _binnenSub, onTap: _openBinnenruimtes, gevuld: _gevuld(0)),
+          subtitle: _binnenSub, onTap: _openBinnenruimtes, gevuld: _gevuld(0),
+          punten: _tegelPunten('Binnenruimtes')),
       _TileData(label: 'Buitenruimtes', icon: Icons.deck,
-          subtitle: _buitenSub, onTap: _openBuitenruimtes, gevuld: _gevuld(1)),
+          subtitle: _buitenSub, onTap: _openBuitenruimtes, gevuld: _gevuld(1),
+          punten: _tegelPunten('Buitenruimtes')),
       _TileData(label: 'Keuken', icon: Icons.kitchen,
-          subtitle: _keukenSub, onTap: _openKeuken, gevuld: _gevuld(2)),
+          subtitle: _keukenSub, onTap: _openKeuken, gevuld: _gevuld(2),
+          punten: _tegelPunten('Keuken')),
       _TileData(label: 'Sanitair', icon: Icons.bathtub,
-          subtitle: _sanitairSub, onTap: _openSanitair, gevuld: _gevuld(3)),
+          subtitle: _sanitairSub, onTap: _openSanitair, gevuld: _gevuld(3),
+          punten: _tegelPunten('Sanitair')),
       _TileData(label: 'Energie & Type', icon: Icons.bolt,
-          subtitle: _energieSub, onTap: _openEnergie, gevuld: _gevuld(4)),
+          subtitle: _energieSub, onTap: _openEnergie, gevuld: _gevuld(4),
+          punten: _tegelPunten('Energie & Type')),
       _TileData(label: 'WOZ-waarde', icon: Icons.euro,
-          subtitle: _wozSub, onTap: _openWoz, gevuld: _gevuld(5)),
+          subtitle: _wozSub, onTap: _openWoz, gevuld: _gevuld(5),
+          punten: _tegelPunten('WOZ-waarde')),
     ];
 
     return PopScope<WwsInvoerData>(
@@ -384,9 +452,12 @@ class _TileData {
   final String subtitle;
   final VoidCallback onTap;
   final bool gevuld;
+  /// Punten van de bijbehorende WWS-rubrieken (live meegeteld); null zolang
+  /// er nog geen berekening is gedaan.
+  final double? punten;
   const _TileData({
     required this.label, required this.icon, required this.subtitle,
-    required this.onTap, required this.gevuld,
+    required this.onTap, required this.gevuld, this.punten,
   });
 }
 
@@ -398,6 +469,27 @@ class _WwsTegel extends StatelessWidget {
   static const Color _gevuldBg = Color(0xFFE7F6EC);
   static const Color _gevuldRand = Color(0xFFA5D6A7);
   static const Color _gevuldGroen = Color(0xFF2E7D32);
+  // Huisstijl: lichtblauw chipje met navy tekst, zoals op de website.
+  static const Color _chipBg = Color(0xFFDFECF7);
+  static const Color _chipTekst = Color(0xFF0C1C60);
+
+  /// "7 pt"-tellertje, live meegeteld met de laatste berekening.
+  Widget _puntenChip(double punten) {
+    final afgerond = (punten * 100).round() / 100;
+    final tekst = afgerond == afgerond.roundToDouble()
+        ? afgerond.toInt().toString()
+        : afgerond.toStringAsFixed(2).replaceAll('.', ',');
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: _chipBg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text('$tekst pt',
+          style: const TextStyle(
+              fontSize: 11.5, fontWeight: FontWeight.w600, color: _chipTekst)),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -427,9 +519,12 @@ class _WwsTegel extends StatelessWidget {
                           ? _gevuldGroen
                           : cs.onSurface.withOpacity(0.45)),
                   const Spacer(),
-                  if (gevuld)
+                  if (data.punten != null) _puntenChip(data.punten!),
+                  if (gevuld) ...[
+                    const SizedBox(width: 6),
                     const Icon(Icons.check_circle, size: 18,
                         color: _gevuldGroen),
+                  ],
                 ],
               ),
               const SizedBox(height: 8),
