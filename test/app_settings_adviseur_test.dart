@@ -18,6 +18,8 @@ void main() {
         adviseurAchternaam: 'Weijers',
         examenNummerWonen: '64513',
         examenNummerUtiliteit: '',
+        eigenaarId: '',
+        eigenaarNaam: '',
         photoStorageLocation: '',
         gpsBagRadiusMeters: 50.0,
       ),
