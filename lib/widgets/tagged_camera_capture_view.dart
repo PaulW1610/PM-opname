@@ -436,6 +436,10 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
   }
 
   void _startVolumeButtonListener() {
+    // Terwijl de zaklamp aan staat houden we de volumeknop-sluiter (en dus de
+    // AVAudioSession + MPVolumeView) bewust uit: die audiosessie dooft op
+    // sommige iOS-versies de torch direct weer. Zie _toggleTorch.
+    if (_torchEnabled) return;
     try {
       _volumeButtonSub = VolumeButtonService.presses
           .listen((_) => _onVolumeButtonPressed(), onError: (_) {});
@@ -888,16 +892,35 @@ class _TaggedCameraCaptureViewState extends State<TaggedCameraCaptureView>
 
     final nextState = !_torchEnabled;
     try {
+      // Zet _torchEnabled vóór het (de)activeren van de volumeknop-sluiter,
+      // zodat _startVolumeButtonListener de audiosessie niet opnieuw opstart
+      // zolang de zaklamp aan is.
+      _torchEnabled = nextState;
+      if (nextState) {
+        // Zaklamp aan: laat de volumeknop-sluiter (AVAudioSession +
+        // MPVolumeView) los, anders dooft die de torch bijna direct weer.
+        // Annuleren triggert native onCancel → audiosessie deactiveren.
+        // De scherm-sluiter blijft werken.
+        try {
+          await _volumeButtonSub?.cancel();
+        } catch (_) {}
+        _volumeButtonSub = null;
+      }
       await controller.setFlashMode(nextState ? FlashMode.torch : FlashMode.off);
       if (!mounted) return;
-      setState(() {
-        _torchEnabled = nextState;
-      });
+      setState(() {});
+      if (!nextState) {
+        // Zaklamp uit: volumeknop-sluiter weer inschakelen.
+        _startVolumeButtonListener();
+      }
       await StabilityLoggerService.recordEvent(
         'camera_torch_toggle',
         data: {'enabled': nextState},
       );
     } catch (_) {
+      _torchEnabled = false;
+      // Volumeknop-sluiter weer aanzetten (kan hierboven geannuleerd zijn).
+      if (_volumeButtonSub == null) _startVolumeButtonListener();
       await StabilityLoggerService.recordEvent('camera_torch_unavailable');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

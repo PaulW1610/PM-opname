@@ -12,6 +12,7 @@ import '../config/app_secrets.dart';
 import '../models/gebouwtype_optie.dart';
 import '../models/wws_invoer_data.dart';
 import '../services/afsluit_form_store.dart';
+import '../services/entiteit_link_store.dart';
 import '../services/app_settings_service.dart';
 import '../services/bag_service.dart';
 import '../services/blueprint_api_service.dart';
@@ -341,8 +342,27 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       }
     }
 
-    final created = await BlueprintApiService.createEntiteit(fields: fields);
-    final entiteitId = int.tryParse((created['id'] ?? '').toString());
+    // Dubbele objecten voorkomen: is dit dossier al eerder naar de site
+    // gestuurd, dan werken we dat bestaande object bij i.p.v. een nieuw aan te
+    // maken. Anders zou twee keer afsluiten (of een retry) een duplicaat geven.
+    final bestaandId = await EntiteitLinkStore.laad(widget.dossierName);
+    final Map<String, dynamic> created;
+    if (bestaandId != null) {
+      created = await BlueprintApiService.updateEntiteit(
+        id: bestaandId,
+        fields: fields,
+      );
+    } else {
+      created = await BlueprintApiService.createEntiteit(fields: fields);
+    }
+    final entiteitId =
+        bestaandId ?? int.tryParse((created['id'] ?? '').toString());
+
+    // Koppeling bewaren zodra we een id hebben, zodat een volgende afsluiting
+    // ditzelfde object bijwerkt.
+    if (entiteitId != null) {
+      await EntiteitLinkStore.bewaar(widget.dossierName, entiteitId);
+    }
 
     if (entiteitId != null && await bewijsFoto.exists()) {
       await BlueprintApiService.uploadDocument(
@@ -371,6 +391,7 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
     var serverAdres = (created['adres'] ?? '').toString().trim();
     final serverWws = (created['wws'] ?? '').toString().trim();
     final verhuurInfo = _verhuurNaarObject ? 'ja' : 'nee';
+    final ketelHerkend = _leesKetelHerkenning(created);
     var reparatie = '';
 
     // De site noemde eenheden tot nu toe naar de 16-cijferige BAG-pandcode die
@@ -420,7 +441,41 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       'WWS-punten volgens site: '
           '${serverWws.isNotEmpty && serverWws != '0' ? serverWws : '(leeg!)'}',
       'Verhuurgegevens meegestuurd: $verhuurInfo',
+      if (ketelHerkend.isNotEmpty) '🔥 AI herkende ketel: $ketelHerkend',
     ].join('\n');
+  }
+
+  /// Leest een eventuele ketel-/toestelherkenning uit het website-antwoord.
+  ///
+  /// De website (AI-herkenning) mag het herkende toestel teruggeven zodat de
+  /// opnemer meteen ziet dat het gelukt is. We lezen defensief meerdere
+  /// mogelijke vormen: een losse tekst (`ketel_herkend`/`toestel_herkend`) of
+  /// een genest object (`herkenning: { ketel: "...", vertrouwen: 0.9 }`).
+  /// Zolang de site nog niets meestuurt blijft dit leeg en verandert er niets.
+  /// Het exacte contract staat in `OneDrive/Apps/APP-API-WENSEN.md`.
+  String _leesKetelHerkenning(Map<String, dynamic> created) {
+    for (final sleutel in const ['ketel_herkend', 'toestel_herkend']) {
+      final waarde = (created[sleutel] ?? '').toString().trim();
+      if (waarde.isNotEmpty && waarde.toLowerCase() != 'null') return waarde;
+    }
+    final herkenning = created['herkenning'];
+    if (herkenning is Map) {
+      final ketel = (herkenning['ketel'] ??
+              herkenning['toestel'] ??
+              herkenning['naam'] ??
+              '')
+          .toString()
+          .trim();
+      final vertrouwen = herkenning['vertrouwen'] ?? herkenning['confidence'];
+      if (ketel.isNotEmpty && ketel.toLowerCase() != 'null') {
+        if (vertrouwen is num) {
+          final pct = (vertrouwen <= 1 ? vertrouwen * 100 : vertrouwen).round();
+          return '$ketel ($pct% zeker)';
+        }
+        return ketel;
+      }
+    }
+    return '';
   }
 
   /// Korte melding onder de WWS-schakelaar: staat er invoer klaar die de
