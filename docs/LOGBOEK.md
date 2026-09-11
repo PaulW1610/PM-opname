@@ -5,6 +5,31 @@ Nieuwste bovenaan. De API-afspraken met de website staan in
 `OneDrive/Apps/APP-API.md`; wensen richting de plugin-kant in
 `APP-API-WENSEN.md`.
 
+## 2026-09-11 — Veldbugs: zaklamp, dubbele objecten, ketel-melding (2.9.5+34)
+
+Drie bevindingen tijdens het opnemen, met Paul opgelost/voorbereid.
+
+- **Zaklamp dooft direct (opgelost, op toestel bevestigd).** De zaklamp ging
+  vrijwel meteen weer uit zodra je 'm aanzette (zonder foto). Oorzaak: de
+  volumeknop-sluiter houdt continu een `AVAudioSession` + `MPVolumeView` actief,
+  en dat doofde de torch op iOS 26. Fix: zolang de zaklamp aan staat pauzeren we
+  de volumeknop-sluiter (annuleren van het abonnement → native `onCancel` →
+  audiosessie deactiveren). De scherm-sluiter blijft werken; zaklamp uit =
+  volumeknop-sluiter komt terug. In `tagged_camera_capture_view.dart`.
+- **Twee keer afsluiten = twee objecten op de site (opgelost, app-kant).**
+  `_syncNaarBlueprintObject` deed altijd `createEntiteit` (POST = nieuw). Nieuw
+  `EntiteitLinkStore` onthoudt het aangemaakte `entiteitId` per dossier; bij een
+  volgende afsluiting/retry doet de app `updateEntiteit(id)` i.p.v. nieuw
+  aanmaken. Rest-risico (eerste POST slaagt serverzijdig maar app ziet time-out)
+  → serverzijdige idempotentie gevraagd in APP-API-WENSEN.
+- **Terugmelding "AI herkende ketel" (app-kant klaar, wacht op site).** Het
+  afsluit-resultaat toont "🔥 AI herkende ketel: …" zodra de site het meestuurt
+  (`ketel_herkend`/`toestel_herkend` of een `herkenning`-object, defensief
+  gelezen). Contract + architectuurvraag (sync bij afsluiten vs. async via
+  `GET /entiteit/{id}`, want de ketelfoto gaat naar Nextcloud) staan in
+  APP-API-WENSEN.md; de pc/website-kant vult het veld. Nog NIET naar TestFlight
+  (2.9.4+33 staat daar); wel gecommit + gepusht.
+
 ## 2026-09-08 — WWS onzelfstandig afgemaakt + iOS 15 (2.9.4+33)
 
 Vervolg op dezelfde dag; WWS-onzelfstandig (kamerverhuur) verder afgewerkt en
