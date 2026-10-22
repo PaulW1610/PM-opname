@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -134,27 +135,77 @@ class ThreeDBagService {
       _toShortPandId(normalized),
     }..removeWhere((value) => value.trim().isEmpty);
 
+    // 3DBAG is een extraatje (gebouwoverzicht en -hoogte). Als de dienst
+    // niet bereikbaar is, mag dat het afsluiten van een opname nooit
+    // blokkeren (22-10-2026: 3dbag.nl lag eruit en elke afsluiting liep vast
+    // op "operation timed out"). Daarom: korte tijdslimiet, elke fout wordt
+    // opgevangen, en na één mislukking slaan we 3DBAG de rest van de sessie
+    // over zodat er niet drie keer per aanroep gewacht wordt.
+    if (_onbereikbaar) {
+      return null;
+    }
+
     for (final candidateId in candidateIds) {
       final url = Uri.parse(
         '$baseUrl/collections/pand/items/${Uri.encodeComponent(candidateId)}',
       );
 
-      final response = await http.get(
-        url,
-        headers: const {'Accept': 'application/json'},
-      );
+      final http.Response response;
+      try {
+        response = await http
+            .get(url, headers: const {'Accept': 'application/json'})
+            .timeout(tijdslimiet);
+      } catch (e) {
+        _onbereikbaar = true;
+        laatsteFout = '3DBAG niet bereikbaar: ${_korteFout(e)}';
+        return null;
+      }
 
       if (response.statusCode != 200) {
         continue;
       }
 
-      final decoded = jsonDecode(response.body);
-      if (decoded is Map<String, dynamic>) {
-        return decoded;
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          laatsteFout = null; // gelukt: een eerdere melding niet laten staan
+          return decoded;
+        }
+      } catch (_) {
+        continue;
       }
     }
 
     return null;
+  }
+
+  /// Maximale wachttijd per 3DBAG-verzoek (mobiele data in het veld).
+  static const Duration tijdslimiet = Duration(seconds: 10);
+
+  /// Laatste foutmelding van 3DBAG (leeg als alles goed ging); voor de melding
+  /// aan de gebruiker.
+  static String? laatsteFout;
+
+  static bool _onbereikbaar = false;
+
+  /// Na een mislukking wordt 3DBAG in deze sessie overgeslagen; hiermee kan de
+  /// gebruiker (bijv. via de Ververs-knop) opnieuw proberen.
+  static void resetOnbereikbaar() {
+    _onbereikbaar = false;
+    laatsteFout = null;
+  }
+
+  static String _korteFout(Object e) {
+    if (e is TimeoutException) {
+      return 'geen antwoord binnen ${tijdslimiet.inSeconds} seconden';
+    }
+    if (e is SocketException ||
+        e is HandshakeException ||
+        e is http.ClientException) {
+      return 'geen verbinding met 3dbag.nl';
+    }
+    final s = e.toString();
+    return s.length > 120 ? '${s.substring(0, 120)}…' : s;
   }
 
   static List<_Vertex2D> _extractVertices(Map<String, dynamic> data) {

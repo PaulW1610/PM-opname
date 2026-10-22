@@ -685,12 +685,28 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       );
 
       final bagPandId = (bagData.bagPandId ?? '').trim();
-      final drieDbagImageFile = bagPandId.isEmpty
-          ? null
-          : await ThreeDBagService.createGebouwOverzichtImageForDossier(
-              bagPandId: bagPandId,
-              dossierName: widget.dossierName,
-            );
+      // 3DBAG mag het afsluiten nooit tegenhouden: lukt het niet (dienst
+      // eruit, geen bereik), dan zonder gebouwoverzicht verder. Zie
+      // ThreeDBagService.laatsteFout voor de reden.
+      File? drieDbagImageFile;
+      if (bagPandId.isNotEmpty) {
+        try {
+          drieDbagImageFile =
+              await ThreeDBagService.createGebouwOverzichtImageForDossier(
+            bagPandId: bagPandId,
+            dossierName: widget.dossierName,
+          );
+        } catch (e) {
+          drieDbagImageFile = null;
+          ThreeDBagService.laatsteFout ??= '3DBAG-overzicht mislukt: $e';
+        }
+      }
+      final drieDbagInfo = (bagPandId.isNotEmpty &&
+              drieDbagImageFile == null &&
+              ThreeDBagService.laatsteFout != null)
+          ? '${ThreeDBagService.laatsteFout}; gebouwoverzicht en -hoogte '
+              'overgeslagen, de opname is gewoon afgesloten.'
+          : '';
 
       // Fotolijst met machineleesbaar label per foto (uit de bestandsnaam),
       // zodat de pc-keten het toestel/onderdeel niet uit de foto hoeft te
@@ -786,6 +802,9 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
       // 1. E-mail met alle bijlagen.
       await FlutterEmailSender.send(email);
       meldingen.add('E-mail geopend met de bijlagen.');
+      if (drieDbagInfo.isNotEmpty) {
+        meldingen.add('3DBAG: $drieDbagInfo');
+      }
 
       // 2. Naar Nextcloud (voor de zekerheid) — export-bestanden -> EP/.
       if (await NextcloudService.isConfigured()) {
@@ -1183,6 +1202,10 @@ class _OpnameAfsluitenScreenState extends State<OpnameAfsluitenScreen> {
                     onPressed: _isSaving
                         ? null
                         : () async {
+                            // Bewuste herkansing: 3DBAG opnieuw proberen,
+                            // ook als hij deze sessie al als onbereikbaar
+                            // is gemarkeerd.
+                            ThreeDBagService.resetOnbereikbaar();
                             await _prefillGebouwhoogteFrom3dBag();
                           },
                     child: const Text('Ververs'),
