@@ -5,6 +5,40 @@ Nieuwste bovenaan. De API-afspraken met de website staan in
 `OneDrive/Apps/APP-API.md`; wensen richting de plugin-kant in
 `APP-API-WENSEN.md`.
 
+## 2026-10-22 — Afsluiten werkt ook als 3DBAG eruit ligt (2.9.6+35)
+
+Op 22-10 lag 3dbag.nl eruit en liep elke afsluiting vast op "operation timed
+out". De desktop had de fix al gemaakt — als **ongecommitte wijzigingen in de
+T9-werkmap** (`/Volumes/T9/AIProgramas/photo_organizer_app`), die op een
+verouderde basis staat (2.2.0+10 / WIP-commit `3fd4a46`). Overgezet naar de
+echte branch en geverifieerd (22 tests groen, Paul bevestigt op toestel).
+
+- **`ThreeDBagService`**: 10 s tijdslimiet per verzoek; elke netwerkfout wordt
+  opgevangen (`null` i.p.v. hangen); na één mislukking wordt 3DBAG de rest van
+  de sessie overgeslagen (niet 3× wachten per aanroep). `laatsteFout` voor de
+  melding, `resetOnbereikbaar()` voor een bewuste herkansing.
+- **Afsluitscherm**: gebouwoverzicht in try/catch; resultaatvenster meldt
+  "3DBAG … overgeslagen, de opname is gewoon afgesloten"; Ververs-knop bij
+  gebouwhoogte reset de onbereikbaar-vlag en probeert opnieuw.
+- **Git**: commit `4e72680`, gepusht naar `opname-app-v2`.
+- **LET OP — T9 en de desktop-branch.** De remote branch
+  `desktop-wip-2026-09-30` (commit `3fd4a46`) is een WIP-snapshot op basis van
+  20 juli; alles daarin (energielabel-detailsheet, WWS-tellertjes) zat al in
+  `opname-app-v2`. **Niet mergen** — dat zou ~50 commits, alle tests en het
+  WWS-onzelfstandig-werk weggooien. De desktop moet vóór nieuw werk eerst
+  `opname-app-v2` van GitHub ophalen; de T9-kopie is verouderd en de
+  ongecommitte 3DBAG-wijziging daar is nu overgenomen (kan weg).
+- **TestFlight MISLUKT (Apple-kant, niet de app).** IPA 2.9.6+35 bouwde goed,
+  maar `altool` kon niet uploaden: "Unable to find Apple ID for Bundle ID" /
+  "Could not determine provider public id … verify your account has access".
+  Beide routes (API-sleutel én Apple ID + app-wachtwoord) zien **nul apps en
+  nul teams**; `.env.testflight` is ongewijzigd sinds 7 juni en werkte op 8 sep
+  nog. Ook met `--asc-provider MX5MAASSN8` mislukt het. Vermoedelijk verlopen
+  Developer Program-lidmaatschap of verwijderde teamtoegang → Paul checkt
+  developer.apple.com (lidmaatschap) en App Store Connect (staat de app er nog).
+  Tot die tijd staat 2.9.6+35 alleen via de kabel op Pauls iPhone; TestFlight
+  blijft op 2.9.4+33.
+
 ## 2026-09-11 — Veldbugs: zaklamp, dubbele objecten, ketel-melding (2.9.5+34)
 
 Drie bevindingen tijdens het opnemen, met Paul opgelost/voorbereid.
