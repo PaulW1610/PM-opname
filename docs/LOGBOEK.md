@@ -43,8 +43,9 @@ echte branch en geverifieerd (22 tests groen, Paul bevestigt op toestel).
   found" / 403). Oplossing: Account Holder accepteert de overeenkomst op
   appstoreconnect.apple.com/agreements (en de banner op developer.apple.com),
   daarna gewoon opnieuw uploaden.
-  Tot die tijd staat 2.9.6+35 alleen via de kabel op Pauls iPhone; TestFlight
-  blijft op 2.9.4+33.
+  **Afloop:** Paul accepteerde de overeenkomst dezelfde middag; de upload
+  daarna slaagde direct zonder herbouw (`UPLOAD SUCCEEDED`, Delivery UUID
+  `a6797780-1383-48ad-98c7-3d67c0f6766b`). **TestFlight staat nu op 2.9.6+35.**
 
 ## 2026-09-11 — Veldbugs: zaklamp, dubbele objecten, ketel-melding (2.9.5+34)
 
