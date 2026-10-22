@@ -33,9 +33,16 @@ echte branch en geverifieerd (22 tests groen, Paul bevestigt op toestel).
   "Could not determine provider public id … verify your account has access".
   Beide routes (API-sleutel én Apple ID + app-wachtwoord) zien **nul apps en
   nul teams**; `.env.testflight` is ongewijzigd sinds 7 juni en werkte op 8 sep
-  nog. Ook met `--asc-provider MX5MAASSN8` mislukt het. Vermoedelijk verlopen
-  Developer Program-lidmaatschap of verwijderde teamtoegang → Paul checkt
-  developer.apple.com (lidmaatschap) en App Store Connect (staat de app er nog).
+  nog. Ook met `--asc-provider MX5MAASSN8` mislukt het. **Oorzaak bevestigd**
+  via de App Store Connect API (JWT met de API-sleutel, in een scratch-venv met
+  pyjwt): `FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED` — "a required
+  agreement is missing or has expired". Dus géén verlopen lidmaatschap of
+  sleutelprobleem, maar een **nog niet geaccepteerde Program License
+  Agreement**; Apple blokkeert dan álle uploads en API-sleutels (altool meldt
+  dat misleidend als "Unable to find Apple ID for Bundle ID" / "No applications
+  found" / 403). Oplossing: Account Holder accepteert de overeenkomst op
+  appstoreconnect.apple.com/agreements (en de banner op developer.apple.com),
+  daarna gewoon opnieuw uploaden.
   Tot die tijd staat 2.9.6+35 alleen via de kabel op Pauls iPhone; TestFlight
   blijft op 2.9.4+33.
 
